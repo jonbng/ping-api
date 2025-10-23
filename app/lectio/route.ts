@@ -4,7 +4,7 @@ import { Client, PublishBatchRequest } from "@upstash/qstash";
 
 interface Student {
   name: string;
-  elevId: string;
+  studentId: string;
   schoolId: string;
 }
 
@@ -52,10 +52,10 @@ export const POST = verifySignatureAppRouter(async () => {
       const student = doc.data() as Student;
 
       // Guard against malformed docs
-      if (!student?.elevId || !student?.schoolId) {
+      if (!student?.studentId || !student?.schoolId) {
         skippedJobs++;
         console.warn(
-          `[Lectio Scheduler] Skipping malformed document: ${doc.id} (missing elevId or schoolId)`
+          `[Lectio Scheduler] Skipping malformed document: ${doc.id} (missing studentId or schoolId)`
         );
         continue;
       }
