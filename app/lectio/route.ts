@@ -20,18 +20,31 @@ const client = new Client();
  * using a Firestore collectionGroup("students") query.
  */
 export const POST = verifySignatureAppRouter(async () => {
+  const startTime = Date.now();
+  console.log("[Lectio Scheduler] Starting job scheduling...");
+
   try {
     // Pull just the fields we actually need to keep payloads small
+    console.log("[Lectio Scheduler] Fetching students from Firestore...");
     const snapshot = await db
       .collection("lectioCreds")
       .select("studentId", "schoolId")
       .get();
 
     if (snapshot.empty) {
+      console.error(
+        "[Lectio Scheduler] No students found. lectioCreds collection is empty."
+      );
       return new Response("No students found to schedule.", { status: 200 });
     }
 
+    console.log(
+      `[Lectio Scheduler] Found ${snapshot.docs.length} students to schedule.`
+    );
+
     let totalJobs = 0;
+    let skippedJobs = 0;
+    let batchCount = 0;
     let batch: PublishBatchRequest[] = [];
 
     // Build QStash jobs and flush every BATCH_SIZE_LIMIT to avoid big in-memory arrays
@@ -39,7 +52,13 @@ export const POST = verifySignatureAppRouter(async () => {
       const student = doc.data() as Student;
 
       // Guard against malformed docs
-      if (!student?.elevId || !student?.schoolId) continue;
+      if (!student?.elevId || !student?.schoolId) {
+        skippedJobs++;
+        console.warn(
+          `[Lectio Scheduler] Skipping malformed document: ${doc.id} (missing elevId or schoolId)`
+        );
+        continue;
+      }
 
       batch.push({
         body: JSON.stringify(student),
@@ -48,24 +67,50 @@ export const POST = verifySignatureAppRouter(async () => {
       });
 
       if (batch.length >= BATCH_SIZE_LIMIT) {
+        batchCount++;
+        console.log(
+          `[Lectio Scheduler] Sending batch ${batchCount} with ${batch.length} jobs...`
+        );
         await client.batchJSON(batch);
         totalJobs += batch.length;
+        console.log(
+          `[Lectio Scheduler] Batch ${batchCount} sent successfully. Total jobs: ${totalJobs}`
+        );
         batch = [];
       }
     }
 
     // Flush any remainder
     if (batch.length > 0) {
+      batchCount++;
+      console.log(
+        `[Lectio Scheduler] Sending final batch ${batchCount} with ${batch.length} jobs...`
+      );
       await client.batchJSON(batch);
       totalJobs += batch.length;
+      console.log(
+        `[Lectio Scheduler] Final batch sent successfully. Total jobs: ${totalJobs}`
+      );
     }
 
+    const duration = Date.now() - startTime;
     const batches = Math.ceil(totalJobs / BATCH_SIZE_LIMIT) || 0;
+
+    console.log(
+      `[Lectio Scheduler] ✓ Successfully scheduled ${totalJobs} jobs across ${batches} batches in ${duration}ms`
+    );
+    if (skippedJobs > 0) {
+      console.warn(
+        `[Lectio Scheduler] Skipped ${skippedJobs} malformed documents`
+      );
+    }
+
     return new Response(
       `Successfully scheduled ${totalJobs} scraping jobs across ${batches} batches.`
     );
   } catch (error) {
-    console.error("Error scheduling Lectio scraping jobs:", error);
+    const duration = Date.now() - startTime;
+    console.error(`[Lectio Scheduler] ✗ Failed after ${duration}ms:`, error);
     return new Response(
       `Failed to schedule scraping jobs: ${
         error instanceof Error ? error.message : "Unknown error"
