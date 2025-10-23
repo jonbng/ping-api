@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "import-schools": "bun scripts/import-schools.ts"
   },
   "dependencies": {
     "cheerio": "^1.1.2",
