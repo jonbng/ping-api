@@ -68,9 +68,10 @@ export async function POST(request: NextRequest) {
     const customToken = await auth.createCustomToken(uid);
 
     return NextResponse.json({
-      token: customToken,
-      uid,
-      elevId
+      customToken: customToken,
+      firebaseUid: uid,
+      lectioId: elevId,
+      name: "Jonathan"
     });
   } catch (error) {
     console.error('Error in Lectio auth:', error);
