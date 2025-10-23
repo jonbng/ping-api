@@ -61,7 +61,7 @@ export const POST = verifySignatureAppRouter(async () => {
       }
 
       batch.push({
-        body: JSON.stringify(student),
+        body: { studentId: student.studentId, schoolId: student.schoolId },
         queueName: "lectioUserScrape",
         url: "https://api.joinping.dk/lectio/student/scrape",
         retryDelay: "10000",
