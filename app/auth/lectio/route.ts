@@ -7,6 +7,7 @@ export async function POST(request: NextRequest) {
     let body;
     try {
       body = await request.json();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (jsonError) {
       return NextResponse.json(
         { error: "Invalid JSON in request body" },

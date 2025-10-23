@@ -10,6 +10,7 @@
     "import-schools": "bun scripts/import-schools.ts"
   },
   "dependencies": {
+    "@upstash/qstash": "^2.8.4",
     "cheerio": "^1.1.2",
     "firebase-admin": "^13.5.0",
     "next": "16.0.0",
