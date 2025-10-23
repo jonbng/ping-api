@@ -73,17 +73,26 @@ const getWeekKey = (dateStr: string): string => {
   return `${year}-${week.toString().padStart(2, "0")}`;
 };
 
-export const POST = verifySignatureAppRouter(async (req) => {
+export const POST = verifySignatureAppRouter(async (req: Request) => {
   const startTime = Date.now();
   console.log("[Lectio Student Scrape] Endpoint called");
 
   try {
     console.log("[Lectio Student Scrape] Parsing request body...");
-    const body: Student = await req.json();
-    console.log(
-      `[Lectio Student Scrape] Body parsed:`,
-      JSON.stringify(body)
-    );
+    let body: Student;
+    try {
+      body = await req.json();
+      console.log(
+        `[Lectio Student Scrape] Body parsed:`,
+        JSON.stringify(body)
+      );
+    } catch (parseError) {
+      console.error(
+        `[Lectio Student Scrape] Failed to parse JSON body:`,
+        parseError
+      );
+      return new Response("Invalid JSON body", { status: 400 });
+    }
 
     const { studentId, schoolId } = body;
 
@@ -138,12 +147,20 @@ export const POST = verifySignatureAppRouter(async (req) => {
     }
 
     const html = await response.text();
+    console.log(
+      `[Lectio Student Scrape] HTML length: ${html.length} characters`
+    );
     const $ = cheerio.load(html);
 
     // Parse schedule events grouped by date
     const eventsByDate: Record<string, ScheduleEvent[]> = {};
 
     // Find all td elements with data-date attribute (these are the day columns)
+    const dateCells = $("td[data-date]");
+    console.log(
+      `[Lectio Student Scrape] Found ${dateCells.length} date cells`
+    );
+
     $("td[data-date]").each((_, dateCell) => {
       const date = $(dateCell).attr("data-date");
       if (!date) return;
