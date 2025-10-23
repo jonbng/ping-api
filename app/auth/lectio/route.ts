@@ -105,12 +105,14 @@ export async function POST(request: NextRequest) {
     await db.collection("lectioCreds").doc(elevId).set(
       {
         schoolId,
+        studentId: elevId,
         sessionId,
         autologinkey,
         autologinkeyExpiresAt,
         sessionIdExpiresAt,
         firstName,
         lastName,
+        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
       {
