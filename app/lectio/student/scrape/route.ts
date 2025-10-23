@@ -73,11 +73,18 @@ const getWeekKey = (dateStr: string): string => {
   return `${year}-${week.toString().padStart(2, "0")}`;
 };
 
-export const POST = verifySignatureAppRouter(async (req: Request) => {
+export const POST = verifySignatureAppRouter(async (req) => {
   const startTime = Date.now();
+  console.log("[Lectio Student Scrape] Endpoint called");
 
   try {
+    console.log("[Lectio Student Scrape] Parsing request body...");
     const body: Student = await req.json();
+    console.log(
+      `[Lectio Student Scrape] Body parsed:`,
+      JSON.stringify(body)
+    );
+
     const { studentId, schoolId } = body;
 
     if (!studentId || !schoolId) {
@@ -338,6 +345,10 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
     console.error(
       `[Lectio Student Scrape] ✗ Failed after ${duration}ms:`,
       error
+    );
+    console.error(
+      `[Lectio Student Scrape] Error stack:`,
+      error instanceof Error ? error.stack : "No stack trace"
     );
     return new Response(
       `Failed to scrape schedule: ${error instanceof Error ? error.message : "Unknown error"}`,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { load } from "cheerio";
 import { auth, db } from "@/lib/firebase-admin";
+import { Client } from "@upstash/qstash";
 
 export async function POST(request: NextRequest) {
   try {
@@ -134,6 +135,27 @@ export async function POST(request: NextRequest) {
         merge: true,
       }
     );
+
+    // Trigger immediate schedule scrape for this student
+    try {
+      const qstashClient = new Client();
+      await qstashClient.publishJSON({
+        url: "https://api.joinping.dk/lectio/student/scrape",
+        body: {
+          studentId: elevId,
+          schoolId: schoolId,
+        },
+      });
+      console.log(
+        `[Lectio Auth] Triggered scrape job for student ${elevId} at school ${schoolId}`
+      );
+    } catch (qstashError) {
+      // Don't fail auth if scrape scheduling fails
+      console.error(
+        `[Lectio Auth] Failed to trigger scrape job:`,
+        qstashError
+      );
+    }
 
     return NextResponse.json({
       customToken: customToken,
