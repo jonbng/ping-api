@@ -131,12 +131,23 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
     }
 
     const html = await response.text();
+    console.log(
+      `[Lectio Student Scrape] HTML length: ${html.length} characters`
+    );
+
+    console.log(`[Lectio Student Scrape] HTML: ${html.slice(0, 1000)}`);
+
     const $ = cheerio.load(html);
 
     // Parse schedule events grouped by date
     const eventsByDate: Record<string, ScheduleEvent[]> = {};
 
     // Find all td elements with data-date attribute (these are the day columns)
+    const dateCells = $("td[data-date]");
+    console.log(
+      `[Lectio Student Scrape] Found ${dateCells.length} date cells`
+    );
+
     $("td[data-date]").each((_, dateCell) => {
       const date = $(dateCell).attr("data-date");
       if (!date) return;
