@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { load } from 'cheerio';
-import { auth } from '@/lib/firebase-admin';
+import { auth, db } from '@/lib/firebase-admin';
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,17 +14,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { schoolId, sessionId, autologinkey } = body;
+    const { schoolId, sessionId, autologinkey, autologinkeyExpiresAt, sessionIdExpiresAt } = body;
 
-    if (!schoolId || !sessionId || !autologinkey) {
+    if (!schoolId || !sessionId || !autologinkey || !autologinkeyExpiresAt || !sessionIdExpiresAt) {
       return NextResponse.json(
-        { error: 'schoolId, sessionId, and autologinkey are required' },
+        { error: 'schoolId, sessionId, autologinkey, autologinkeyExpiresAt, and sessionIdExpiresAt are required' },
         { status: 400 }
       );
     }
 
     // Fetch the Lectio page with cookies
-    const lectioUrl = `https://www.lectio.dk/lectio/${schoolId}/forside.aspx`;
+    const lectioUrl = `https://www.lectio.dk/lectio/${schoolId}/indstillinger/studentIndstillinger.aspx`;
     const response = await fetch(lectioUrl, {
       headers: {
         Cookie: `ASP.NET_SessionId=${sessionId}; autologinkeyV2=${autologinkey}`,
@@ -62,6 +62,16 @@ export async function POST(request: NextRequest) {
     }
 
     const elevId = elevIdMatch[1];
+
+    // Store credentials in Firestore
+    await db.collection('lectioCreds').doc(elevId).set({
+      schoolId,
+      sessionId,
+      autologinkey,
+      autologinkeyExpiresAt,
+      sessionIdExpiresAt,
+      updatedAt: new Date().toISOString(),
+    });
 
     // Create Firebase custom token with UID format: lectio:schoolId:elevId
     const uid = `lectio:${schoolId}:${elevId}`;
