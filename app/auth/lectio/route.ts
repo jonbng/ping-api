@@ -63,6 +63,26 @@ export async function POST(request: NextRequest) {
 
     const elevId = elevIdMatch[1];
 
+    // Parse Fornavn and Efternavn from the page
+    let firstName = '';
+    let lastName = '';
+
+    $('tr').each((i, elem) => {
+      const th = $(elem).find('th').text().trim();
+      if (th === 'Fornavn:') {
+        firstName = $(elem).find('td').text().trim();
+      } else if (th === 'Efternavn:') {
+        lastName = $(elem).find('td').text().trim();
+      }
+    });
+
+    if (!firstName || !lastName) {
+      return NextResponse.json(
+        { error: 'Could not extract name from Lectio page' },
+        { status: 500 }
+      );
+    }
+
     // Store credentials in Firestore
     await db.collection('lectioCreds').doc(elevId).set({
       schoolId,
@@ -70,6 +90,8 @@ export async function POST(request: NextRequest) {
       autologinkey,
       autologinkeyExpiresAt,
       sessionIdExpiresAt,
+      firstName,
+      lastName,
       updatedAt: new Date().toISOString(),
     });
 
@@ -81,7 +103,7 @@ export async function POST(request: NextRequest) {
       customToken: customToken,
       firebaseUid: uid,
       lectioId: elevId,
-      name: "Jonathan"
+      name: `${firstName} ${lastName}`
     });
   } catch (error) {
     console.error('Error in Lectio auth:', error);
