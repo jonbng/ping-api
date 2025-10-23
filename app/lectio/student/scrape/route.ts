@@ -81,11 +81,23 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
     console.log("[Lectio Student Scrape] Parsing request body...");
     let body: Student;
     try {
-      body = await req.json();
+      const rawBody = await req.json();
       console.log(
-        `[Lectio Student Scrape] Body parsed:`,
-        JSON.stringify(body)
+        `[Lectio Student Scrape] Raw body:`,
+        JSON.stringify(rawBody)
       );
+      console.log(`[Lectio Student Scrape] Raw body type:`, typeof rawBody);
+
+      // Handle double-encoded JSON from QStash
+      if (typeof rawBody === "string") {
+        body = JSON.parse(rawBody);
+        console.log(
+          `[Lectio Student Scrape] Body after double parse:`,
+          JSON.stringify(body)
+        );
+      } else {
+        body = rawBody;
+      }
     } catch (parseError) {
       console.error(
         `[Lectio Student Scrape] Failed to parse JSON body:`,
