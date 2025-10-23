@@ -47,6 +47,7 @@ async function importSchools() {
         docRef,
         {
           schoolName: school.schoolName,
+          schoolId: school.schoolId
         },
         {
           merge: true,
