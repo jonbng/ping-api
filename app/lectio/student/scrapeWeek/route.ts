@@ -7,6 +7,7 @@ import { fetchLectioForStudent } from "@/lib/lectio";
 
 interface Student {
   studentId: string;
+  week?: string; // Optional week in format WWYYYY (e.g., "442025")
 }
 
 type EventStatus = "OK" | "CANCELLED" | "MOVED";
@@ -101,14 +102,15 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
     }
 
     console.log(
-      `[Lectio Student Scrape] Starting scrape for student ${studentId}`
+      `[Lectio Student Scrape] Starting scrape for student ${studentId}${body.week ? ` (week ${body.week})` : ""}`
     );
 
     // Fetch schedule from Lectio using helper
     let html: string;
     let actualSchoolId: string;
     try {
-      const result = await fetchLectioForStudent(studentId, "/SkemaNy.aspx");
+      const queryParams = body.week ? { week: body.week } : undefined;
+      const result = await fetchLectioForStudent(studentId, "/SkemaNy.aspx", queryParams);
       html = result.html;
       actualSchoolId = result.schoolId;
       console.log(

@@ -61,11 +61,13 @@ export async function fetchLectioWithCookies(
  * Fetches a Lectio page for a specific student using their stored credentials
  * @param studentId - The student's Lectio ID (elevid)
  * @param path - The path to fetch (e.g., "/SkemaNy.aspx")
+ * @param queryParams - Optional query parameters (e.g., { week: "442025" })
  * @returns The HTML response
  */
 export async function fetchLectioForStudent(
   studentId: string,
-  path: string
+  path: string,
+  queryParams?: Record<string, string>
 ): Promise<{ html: string; schoolId: string }> {
   // Get student credentials from Firebase
   const credDoc = await db.collection("lectioCreds").doc(studentId).get();
@@ -89,7 +91,14 @@ export async function fetchLectioForStudent(
     throw new Error(`No autologinkey found for student ${studentId}`);
   }
 
-  const html = await fetchLectioWithCookies(schoolId, path, {
+  // Build path with query params if provided
+  let fullPath = path;
+  if (queryParams && Object.keys(queryParams).length > 0) {
+    const queryString = new URLSearchParams(queryParams).toString();
+    fullPath = `${path}?${queryString}`;
+  }
+
+  const html = await fetchLectioWithCookies(schoolId, fullPath, {
     sessionId,
     autologinkey,
   });

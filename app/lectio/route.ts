@@ -68,7 +68,7 @@ export const POST = verifySignatureAppRouter(async () => {
           studentId: student.studentId
         } as any, // eslint-disable-line
         queueName: "lectioUserScrape",
-        url: "https://api.joinping.dk/lectio/student/scrape",
+        url: "https://api.joinping.dk/lectio/student/scrapeWeek",
         retryDelay: "10000",
         retries: 2,
       });

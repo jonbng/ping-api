@@ -4,12 +4,19 @@ import { auth, db } from "@/lib/firebase-admin";
 import { Client } from "@upstash/qstash";
 import { fetchLectioWithCookies } from "@/lib/lectio";
 
+const getWeekKey = (date: Date): string => {
+  // response format format: WWYYYY
+  const week = Math.ceil(date.getTime() / (1000 * 60 * 60 * 24 * 7));
+  const year = date.getFullYear();
+  return `${week.toString().padStart(2, "0")}${year.toString()}`;
+};
+
 export async function POST(request: NextRequest) {
   try {
     let body;
     try {
       body = await request.json();
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (jsonError) {
       return NextResponse.json(
         { error: "Invalid JSON in request body" },
@@ -54,7 +61,12 @@ export async function POST(request: NextRequest) {
       );
     } catch (error) {
       return NextResponse.json(
-        { error: error instanceof Error ? error.message : "Failed to fetch Lectio page" },
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to fetch Lectio page",
+        },
         { status: 502 }
       );
     }
@@ -143,9 +155,18 @@ export async function POST(request: NextRequest) {
     try {
       const qstashClient = new Client();
       await qstashClient.publishJSON({
-        url: "https://api.joinping.dk/lectio/student/scrape",
+        url: "https://api.joinping.dk/lectio/student/scrapeWeek",
         body: {
           studentId: elevId,
+        },
+      });
+
+      const nextWeek = new Date(new Date().getTime() + 1000 * 60 * 60 * 24 * 7);
+      await qstashClient.publishJSON({
+        url: "https://api.joinping.dk/lectio/student/scrapeWeek",
+        body: {
+          studentId: elevId,
+          week: getWeekKey(nextWeek),
         },
       });
       console.log(
@@ -153,10 +174,7 @@ export async function POST(request: NextRequest) {
       );
     } catch (qstashError) {
       // Don't fail auth if scrape scheduling fails
-      console.error(
-        `[Lectio Auth] Failed to trigger scrape job:`,
-        qstashError
-      );
+      console.error(`[Lectio Auth] Failed to trigger scrape job:`, qstashError);
     }
 
     return NextResponse.json({
