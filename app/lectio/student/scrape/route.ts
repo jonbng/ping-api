@@ -137,7 +137,7 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
       `[Lectio Student Scrape] HTML length: ${html.length} characters`
     );
 
-    console.log(`[Lectio Student Scrape] HTML: ${html.slice(0, 1000)}`);
+    console.log(`[Lectio Student Scrape] HTML: ${html}`);
 
     const $ = cheerio.load(html);
 
