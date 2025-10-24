@@ -63,11 +63,11 @@ export const POST = verifySignatureAppRouter(async () => {
       }
 
       batch.push({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // QStash batchJSON handles encoding automatically
         body: {
           studentId: student.studentId,
           schoolId: student.schoolId
-        } as any,
+        } as any, // eslint-disable-line
         queueName: "lectioUserScrape",
         url: "https://api.joinping.dk/lectio/student/scrape",
         retryDelay: "10000",
