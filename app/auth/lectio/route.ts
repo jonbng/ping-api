@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { load } from "cheerio";
 import { auth, db } from "@/lib/firebase-admin";
 import { Client } from "@upstash/qstash";
+import { fetchLectioWithCookies } from "@/lib/lectio";
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,21 +42,23 @@ export async function POST(request: NextRequest) {
     }
 
     // Fetch the Lectio page with cookies
-    const lectioUrl = `https://www.lectio.dk/lectio/${schoolId}/indstillinger/studentIndstillinger.aspx`;
-    const response = await fetch(lectioUrl, {
-      headers: {
-        Cookie: `ASP.NET_SessionId=${sessionId}; autologinkeyV2=${autologinkey}`,
-      },
-    });
-
-    if (!response.ok) {
+    let html: string;
+    try {
+      html = await fetchLectioWithCookies(
+        schoolId,
+        "/indstillinger/studentIndstillinger.aspx",
+        {
+          sessionId,
+          autologinkey,
+        }
+      );
+    } catch (error) {
       return NextResponse.json(
-        { error: "Failed to fetch Lectio page" },
+        { error: error instanceof Error ? error.message : "Failed to fetch Lectio page" },
         { status: 502 }
       );
     }
 
-    const html = await response.text();
     const $ = load(html);
 
     // Extract elevid from meta tag
@@ -143,7 +146,6 @@ export async function POST(request: NextRequest) {
         url: "https://api.joinping.dk/lectio/student/scrape",
         body: {
           studentId: elevId,
-          schoolId: schoolId,
         },
       });
       console.log(

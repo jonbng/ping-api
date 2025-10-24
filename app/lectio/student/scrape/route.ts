@@ -3,10 +3,10 @@ import { db } from "@/lib/firebase-admin";
 import { Timestamp } from "firebase-admin/firestore";
 import * as cheerio from "cheerio";
 import { createHash } from "crypto";
+import { fetchLectioForStudent } from "@/lib/lectio";
 
 interface Student {
   studentId: string;
-  schoolId: string;
 }
 
 type EventStatus = "OK" | "CANCELLED" | "MOVED";
@@ -91,64 +91,39 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
 
   try {
     const body: Student = await req.json();
-    const { studentId, schoolId } = body;
+    const { studentId } = body;
 
-    if (!studentId || !schoolId) {
+    if (!studentId) {
       console.error(
-        `[Lectio Student Scrape] Missing required fields: studentId=${studentId}, schoolId=${schoolId}`
+        `[Lectio Student Scrape] Missing required field: studentId=${studentId}`
       );
-      return new Response("Missing studentId or schoolId", { status: 400 });
+      return new Response("Missing studentId", { status: 400 });
     }
 
     console.log(
-      `[Lectio Student Scrape] Starting scrape for student ${studentId} at school ${schoolId}`
+      `[Lectio Student Scrape] Starting scrape for student ${studentId}`
     );
 
-    // Get autologinkey from Firebase
-    const credDoc = await db.collection("lectioCreds").doc(studentId).get();
-
-    if (!credDoc.exists) {
-      console.error(
-        `[Lectio Student Scrape] No credentials found for student ${studentId}`
+    // Fetch schedule from Lectio using helper
+    let html: string;
+    let actualSchoolId: string;
+    try {
+      const result = await fetchLectioForStudent(studentId, "/SkemaNy.aspx");
+      html = result.html;
+      actualSchoolId = result.schoolId;
+      console.log(
+        `[Lectio Student Scrape] HTML length: ${html.length} characters`
       );
-      return new Response("Student credentials not found", { status: 404 });
-    }
-
-    const creds = credDoc.data();
-    const autologinkey = creds?.autologinkey;
-    const sessionId = creds?.sessionId;
-
-    if (!autologinkey || !sessionId) {
+    } catch (error) {
       console.error(
-        `[Lectio Student Scrape] No autologinkey or sessionId found for student ${studentId}`
+        `[Lectio Student Scrape] Failed to fetch schedule:`,
+        error
       );
-      return new Response("Student autologinkey or sessionId not found", { status: 404 });
-    }
-
-    // Fetch schedule from Lectio
-    const lectioUrl = `https://www.lectio.dk/lectio/${schoolId}/SkemaNy.aspx`;
-    console.log(`[Lectio Student Scrape] Fetching schedule from ${lectioUrl}`);
-
-    const response = await fetch(lectioUrl, {
-      headers: {
-        Cookie: `ASP.NET_SessionId=${sessionId}; autologinkeyV2=${autologinkey}`,
-      },
-      redirect: "follow",
-    });
-
-    if (!response.ok) {
-      console.error(
-        `[Lectio Student Scrape] Failed to fetch schedule: ${response.status}`
+      return new Response(
+        `Failed to fetch schedule: ${error instanceof Error ? error.message : "Unknown error"}`,
+        { status: error instanceof Error && error.message.includes("Robot") ? 403 : 500 }
       );
-      return new Response("Failed to fetch schedule", { status: 500 });
     }
-
-    const html = await response.text();
-    console.log(
-      `[Lectio Student Scrape] HTML length: ${html.length} characters`
-    );
-
-    console.log(`[Lectio Student Scrape] HTML: ${html}`);
 
     const $ = cheerio.load(html);
 
@@ -326,7 +301,7 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
       const scheduleDay: ScheduleDay = {
         date,
         weekKey,
-        schoolId,
+        schoolId: actualSchoolId,
         studentKey: studentId,
         updatedAt: Timestamp.now(),
         hash,
@@ -335,7 +310,7 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
 
       const docRef = db
         .collection("lectio")
-        .doc(schoolId)
+        .doc(actualSchoolId)
         .collection("students")
         .doc(studentId)
         .collection("schedules")

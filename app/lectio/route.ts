@@ -65,8 +65,7 @@ export const POST = verifySignatureAppRouter(async () => {
       batch.push({
         // QStash batchJSON handles encoding automatically
         body: {
-          studentId: student.studentId,
-          schoolId: student.schoolId
+          studentId: student.studentId
         } as any, // eslint-disable-line
         queueName: "lectioUserScrape",
         url: "https://api.joinping.dk/lectio/student/scrape",
