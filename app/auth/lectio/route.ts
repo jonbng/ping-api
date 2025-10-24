@@ -50,8 +50,9 @@ export async function POST(request: NextRequest) {
 
     // Fetch the Lectio page with cookies
     let html: string;
+    let updatedSessionId = sessionId;
     try {
-      html = await fetchLectioWithCookies(
+      const result = await fetchLectioWithCookies(
         schoolId,
         "/indstillinger/studentIndstillinger.aspx",
         {
@@ -59,6 +60,14 @@ export async function POST(request: NextRequest) {
           autologinkey,
         }
       );
+      html = result.html;
+      // Use the new session ID if it was updated
+      if (result.newSessionId) {
+        updatedSessionId = result.newSessionId;
+        console.log(
+          `[Lectio Auth] Session ID updated during auth: ${sessionId} -> ${updatedSessionId}`
+        );
+      }
     } catch (error) {
       return NextResponse.json(
         {
@@ -101,7 +110,7 @@ export async function POST(request: NextRequest) {
     let firstName = "";
     let lastName = "";
 
-    $("tr").each((i, elem) => {
+    $("tr").each((_, elem) => {
       const th = $(elem).find("th").text().trim();
       if (th === "Fornavn:") {
         firstName = $(elem).find("td").text().trim();
@@ -122,7 +131,7 @@ export async function POST(request: NextRequest) {
       {
         schoolId,
         studentId: elevId,
-        sessionId,
+        sessionId: updatedSessionId,
         autologinkey,
         autologinkeyExpiresAt,
         sessionIdExpiresAt,

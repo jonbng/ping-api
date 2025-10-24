@@ -5,7 +5,7 @@ import { db } from "@/lib/firebase-admin";
  * @param schoolId - The Lectio school ID
  * @param path - The path to fetch (e.g., "/SkemaNy.aspx")
  * @param cookies - Object with cookie values { sessionId?, autologinkey? }
- * @returns The HTML response
+ * @returns The HTML response and any new sessionId
  */
 export async function fetchLectioWithCookies(
   schoolId: string,
@@ -14,7 +14,7 @@ export async function fetchLectioWithCookies(
     sessionId?: string;
     autologinkey?: string;
   }
-): Promise<string> {
+): Promise<{ html: string; newSessionId?: string }> {
   const url = `https://www.lectio.dk/lectio/${schoolId}${path}`;
 
   // Build cookie string
@@ -54,7 +54,18 @@ export async function fetchLectioWithCookies(
     throw new Error("Robot detection triggered - cannot access Lectio");
   }
 
-  return html;
+  // Check if server sent a new session ID
+  let newSessionId: string | undefined;
+  const setCookieHeader = response.headers.get("set-cookie");
+  if (setCookieHeader) {
+    const sessionIdMatch = setCookieHeader.match(/ASP\.NET_SessionId=([^;]+)/);
+    if (sessionIdMatch && sessionIdMatch[1] !== cookies.sessionId) {
+      newSessionId = sessionIdMatch[1];
+      console.log(`[Lectio API] Session ID updated: ${cookies.sessionId} -> ${newSessionId}`);
+    }
+  }
+
+  return { html, newSessionId };
 }
 
 /**
@@ -98,12 +109,21 @@ export async function fetchLectioForStudent(
     fullPath = `${path}?${queryString}`;
   }
 
-  const html = await fetchLectioWithCookies(schoolId, fullPath, {
+  const result = await fetchLectioWithCookies(schoolId, fullPath, {
     sessionId,
     autologinkey,
   });
 
-  return { html, schoolId };
+  // Update session ID in Firebase if it changed
+  if (result.newSessionId) {
+    console.log(`[Lectio API] Updating session ID for student ${studentId} in Firebase`);
+    await db.collection("lectioCreds").doc(studentId).update({
+      sessionId: result.newSessionId,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  return { html: result.html, schoolId };
 }
 
 /**
