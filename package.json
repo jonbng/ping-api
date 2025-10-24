@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "import-schools": "bun scripts/import-schools.ts"
+    "import-schools": "bun scripts/import-schools.ts",
+    "test-parse": "bun scripts/test-schedule-parse.ts"
   },
   "dependencies": {
     "@upstash/qstash": "^2.8.4",

@@ -103,12 +103,13 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
 
     const creds = credDoc.data();
     const autologinkey = creds?.autologinkey;
+    const sessionId = creds?.sessionId;
 
-    if (!autologinkey) {
+    if (!autologinkey || !sessionId) {
       console.error(
-        `[Lectio Student Scrape] No autologinkey found for student ${studentId}`
+        `[Lectio Student Scrape] No autologinkey or sessionId found for student ${studentId}`
       );
-      return new Response("Student autologinkey not found", { status: 404 });
+      return new Response("Student autologinkey or sessionId not found", { status: 404 });
     }
 
     // Fetch schedule from Lectio
@@ -117,10 +118,11 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
 
     const response = await fetch(lectioUrl, {
       headers: {
-        Cookie: `autologinkeyV2=${autologinkey}`,
+        Cookie: `ASP.NET_SessionId=${sessionId}; autologinkeyV2=${autologinkey}`,
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
       },
+      redirect: "follow",
     });
 
     if (!response.ok) {
