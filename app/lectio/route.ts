@@ -63,10 +63,11 @@ export const POST = verifySignatureAppRouter(async () => {
       }
 
       batch.push({
-        body: JSON.stringify({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        body: {
           studentId: student.studentId,
           schoolId: student.schoolId
-        }),
+        } as any,
         queueName: "lectioUserScrape",
         url: "https://api.joinping.dk/lectio/student/scrape",
         retryDelay: "10000",
