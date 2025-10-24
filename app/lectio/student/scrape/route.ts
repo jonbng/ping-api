@@ -73,6 +73,19 @@ const getWeekKey = (dateStr: string): string => {
   return `${year}-${week.toString().padStart(2, "0")}`;
 };
 
+// Helper to remove undefined values from object (Firestore doesn't allow undefined)
+// eslint-disable-next-line
+const removeUndefined = <T extends Record<string, any>>(obj: T): any => {
+  // eslint-disable-next-line
+  const result: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      result[key] = value;
+    }
+  }
+  return result;
+};
+
 export const POST = verifySignatureAppRouter(async (req: Request) => {
   const startTime = Date.now();
 
@@ -119,8 +132,6 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
     const response = await fetch(lectioUrl, {
       headers: {
         Cookie: `ASP.NET_SessionId=${sessionId}; autologinkeyV2=${autologinkey}`,
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
       },
       redirect: "follow",
     });
@@ -271,7 +282,7 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
             endAt = Timestamp.fromDate(endDate);
           }
 
-          const event: ScheduleEvent = {
+          const event: ScheduleEvent = removeUndefined({
             id: absId,
             startAt,
             endAt,
@@ -288,7 +299,7 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
             note,
             homework,
             title,
-          };
+          });
 
           // Add event to the date's events
           if (!eventsByDate[date]) {
