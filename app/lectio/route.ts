@@ -26,20 +26,22 @@ export const POST = verifySignatureAppRouter(async () => {
   try {
     // Pull just the fields we actually need to keep payloads small
     console.log("[Lectio Scheduler] Fetching students from Firestore...");
+    const now = new Date().toISOString();
     const snapshot = await db
       .collection("lectioCreds")
+      .where("autologinkeyExpiresAt", ">", now)
       .select("studentId", "schoolId")
       .get();
 
     if (snapshot.empty) {
       console.error(
-        "[Lectio Scheduler] No students found. lectioCreds collection is empty."
+        "[Lectio Scheduler] No students found with valid credentials."
       );
       return new Response("No students found to schedule.", { status: 200 });
     }
 
     console.log(
-      `[Lectio Scheduler] Found ${snapshot.docs.length} students to schedule.`
+      `[Lectio Scheduler] Found ${snapshot.docs.length} students with valid credentials to schedule.`
     );
 
     let totalJobs = 0;
