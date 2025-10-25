@@ -30,6 +30,8 @@ export async function POST(request: NextRequest) {
       autologinkey,
       autologinkeyExpiresAt,
       sessionIdExpiresAt,
+      lectiogsc,
+      lectiogscExpiresAt,
     } = body;
 
     if (
@@ -51,6 +53,11 @@ export async function POST(request: NextRequest) {
     // Fetch the Lectio page with cookies
     let html: string;
     let updatedSessionId = sessionId;
+    let updatedSessionIdExpiresAt = sessionIdExpiresAt;
+    let updatedAutologinkey = autologinkey;
+    let updatedAutologinkeyExpiresAt = autologinkeyExpiresAt;
+    let updatedLectiogsc = lectiogsc;
+    let updatedLectiogscExpiresAt = lectiogscExpiresAt;
     try {
       const result = await fetchLectioWithCookies(
         schoolId,
@@ -58,15 +65,37 @@ export async function POST(request: NextRequest) {
         {
           sessionId,
           autologinkey,
+          lectiogsc,
         }
       );
       html = result.html;
-      // Use the new session ID if it was updated
+      // Use the new cookies if they were updated
       if (result.newSessionId) {
         updatedSessionId = result.newSessionId;
         console.log(
           `[Lectio Auth] Session ID updated during auth: ${sessionId} -> ${updatedSessionId}`
         );
+        if (result.newSessionIdExpiresAt) {
+          updatedSessionIdExpiresAt = result.newSessionIdExpiresAt;
+        }
+      }
+      if (result.newAutologinkey) {
+        updatedAutologinkey = result.newAutologinkey;
+        console.log(
+          `[Lectio Auth] Autologinkey updated during auth: ${autologinkey} -> ${updatedAutologinkey}`
+        );
+        if (result.newAutologinkeyExpiresAt) {
+          updatedAutologinkeyExpiresAt = result.newAutologinkeyExpiresAt;
+        }
+      }
+      if (result.newLectiogsc) {
+        updatedLectiogsc = result.newLectiogsc;
+        console.log(
+          `[Lectio Auth] Lectiogsc updated during auth: ${lectiogsc} -> ${updatedLectiogsc}`
+        );
+        if (result.newLectiogscExpiresAt) {
+          updatedLectiogscExpiresAt = result.newLectiogscExpiresAt;
+        }
       }
     } catch (error) {
       return NextResponse.json(
@@ -127,19 +156,29 @@ export async function POST(request: NextRequest) {
     }
 
     // Store credentials in Firestore
+    const credentialsData: Record<string, string> = {
+      schoolId,
+      studentId: elevId,
+      sessionId: updatedSessionId,
+      autologinkey: updatedAutologinkey,
+      autologinkeyExpiresAt: updatedAutologinkeyExpiresAt,
+      sessionIdExpiresAt: updatedSessionIdExpiresAt,
+      firstName,
+      lastName,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Add lectiogsc if provided
+    if (updatedLectiogsc) {
+      credentialsData.lectiogsc = updatedLectiogsc;
+    }
+    if (updatedLectiogscExpiresAt) {
+      credentialsData.lectiogscExpiresAt = updatedLectiogscExpiresAt;
+    }
+
     await db.collection("lectioCreds").doc(elevId).set(
-      {
-        schoolId,
-        studentId: elevId,
-        sessionId: updatedSessionId,
-        autologinkey,
-        autologinkeyExpiresAt,
-        sessionIdExpiresAt,
-        firstName,
-        lastName,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
+      credentialsData,
       {
         merge: true,
       }
