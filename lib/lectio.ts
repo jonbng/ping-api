@@ -36,8 +36,11 @@ function parseAllCookies(setCookieHeader: string): Record<string, { value: strin
 
   // Split by comma followed by a cookie name pattern (to handle multiple Set-Cookie values)
   const cookieStrings = setCookieHeader.split(/,(?=[^,]+=)/);
+  console.log(`[Lectio API DEBUG] Split Set-Cookie header into ${cookieStrings.length} parts`);
 
   for (const cookieStr of cookieStrings) {
+    console.log(`[Lectio API DEBUG] Parsing cookie string:`, cookieStr.substring(0, 100));
+
     // Extract cookie name and value
     const match = cookieStr.match(/^([^=]+)=([^;]*)/);
     if (match) {
@@ -45,10 +48,14 @@ function parseAllCookies(setCookieHeader: string): Record<string, { value: strin
       const value = match[2].trim();
       const expiresAt = parseExpiration(cookieStr);
 
+      console.log(`[Lectio API DEBUG] Extracted cookie: name="${name}", value="${value}", expiresAt="${expiresAt}"`);
       cookies[name] = { value, expiresAt };
+    } else {
+      console.log(`[Lectio API DEBUG] Failed to match cookie pattern for string:`, cookieStr.substring(0, 100));
     }
   }
 
+  console.log(`[Lectio API DEBUG] Parsed ${Object.keys(cookies).length} cookies total`);
   return cookies;
 }
 
@@ -149,10 +156,16 @@ export async function fetchLectioWithCookies(
   const updatedCookies: Record<string, { value: string; expiresAt?: string }> = {};
   const setCookieHeader = finalResponse.headers.get("set-cookie");
 
+  console.log(`[Lectio API DEBUG] Set-Cookie header present: ${!!setCookieHeader}`);
   if (setCookieHeader) {
+    console.log(`[Lectio API DEBUG] Raw Set-Cookie header:`, setCookieHeader);
     const newCookies = parseAllCookies(setCookieHeader);
+    console.log(`[Lectio API DEBUG] Parsed cookies from Set-Cookie:`, JSON.stringify(newCookies, null, 2));
+    console.log(`[Lectio API DEBUG] Current cookies sent in request:`, JSON.stringify(cookies, null, 2));
 
     for (const [name, cookieData] of Object.entries(newCookies)) {
+      console.log(`[Lectio API DEBUG] Checking cookie "${name}": new="${cookieData.value}" vs old="${cookies[name]}" (equal: ${cookieData.value === cookies[name]})`);
+
       // Only include if the cookie value changed
       if (cookieData.value !== cookies[name]) {
         updatedCookies[name] = cookieData;
@@ -160,8 +173,12 @@ export async function fetchLectioWithCookies(
         if (cookieData.expiresAt) {
           console.log(`[Lectio API] Cookie "${name}" expires at: ${cookieData.expiresAt}`);
         }
+      } else {
+        console.log(`[Lectio API DEBUG] Cookie "${name}" unchanged, skipping`);
       }
     }
+  } else {
+    console.log(`[Lectio API DEBUG] No Set-Cookie header in response`);
   }
 
   return {
