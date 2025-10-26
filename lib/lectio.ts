@@ -219,20 +219,40 @@ export async function fetchLectioForStudent(
 
   const result = await fetchLectioWithCookies(schoolId, fullPath, cookieValues);
 
-  // Update cookies in Firebase if any changed
-  if (Object.keys(result.updatedCookies).length > 0) {
-    // Merge updated cookies with existing ones
-    const mergedCookies = { ...storedCookies };
-    for (const [name, cookieData] of Object.entries(result.updatedCookies)) {
-      mergedCookies[name] = cookieData;
-      console.log(`[Lectio API] Updating cookie "${name}" for student ${studentId} in Firebase`);
+  // Build the complete cookie jar after the request
+  const completeCookieJar = { ...storedCookies } as Record<string, { value: string; expiresAt?: string }>;
+
+  // Merge in any updated cookies from the response
+  for (const [name, cookieData] of Object.entries(result.updatedCookies)) {
+    completeCookieJar[name] = cookieData;
+    console.log(`[Lectio API] Cookie "${name}" updated for student ${studentId}`);
+  }
+
+  // Always sync the complete cookie jar to Firebase after every request
+  const cookieJarString = JSON.stringify(completeCookieJar);
+  const storedCookieJarString = JSON.stringify(storedCookies);
+
+  if (cookieJarString !== storedCookieJarString) {
+    console.log(`[Lectio API] Syncing full cookie jar to Firebase for student ${studentId}`);
+
+    // Build updates object
+    const updates: Record<string, any> = { // eslint-disable-line
+      cookies: completeCookieJar,
+      updatedAt: new Date().toISOString(),
+      active: true,
+    };
+
+    // Also update top-level autologinkey if it exists in the jar (for scheduler queries)
+    if (completeCookieJar.autologinkeyV2) {
+      updates.autologinkey = completeCookieJar.autologinkeyV2.value;
+      if (completeCookieJar.autologinkeyV2.expiresAt) {
+        updates.autologinkeyExpiresAt = completeCookieJar.autologinkeyV2.expiresAt;
+      }
     }
 
-    await db.collection("lectioCreds").doc(studentId).update({
-      cookies: mergedCookies,
-      updatedAt: new Date().toISOString(),
-      active: true, // Mark as active when cookies are successfully updated
-    });
+    await db.collection("lectioCreds").doc(studentId).update(updates);
+  } else {
+    console.log(`[Lectio API] Cookie jar unchanged for student ${studentId}, skipping Firebase sync`);
   }
 
   return { html: result.html, schoolId };
