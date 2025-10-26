@@ -219,21 +219,31 @@ export async function fetchLectioForStudent(
 
   const result = await fetchLectioWithCookies(schoolId, fullPath, cookieValues);
 
+  console.log(`[Lectio API DEBUG] Stored cookies from Firebase for student ${studentId}:`, JSON.stringify(storedCookies, null, 2));
+  console.log(`[Lectio API DEBUG] Updated cookies from Lectio response:`, JSON.stringify(result.updatedCookies, null, 2));
+
   // Build the complete cookie jar after the request
   const completeCookieJar = { ...storedCookies } as Record<string, { value: string; expiresAt?: string }>;
 
   // Merge in any updated cookies from the response
   for (const [name, cookieData] of Object.entries(result.updatedCookies)) {
     completeCookieJar[name] = cookieData;
-    console.log(`[Lectio API] Cookie "${name}" updated for student ${studentId}`);
+    console.log(`[Lectio API] Cookie "${name}" updated for student ${studentId}: ${JSON.stringify(cookieData)}`);
   }
+
+  console.log(`[Lectio API DEBUG] Complete cookie jar after merge:`, JSON.stringify(completeCookieJar, null, 2));
 
   // Always sync the complete cookie jar to Firebase after every request
   const cookieJarString = JSON.stringify(completeCookieJar);
   const storedCookieJarString = JSON.stringify(storedCookies);
 
+  console.log(`[Lectio API DEBUG] Stored JSON length: ${storedCookieJarString.length}, Complete JSON length: ${cookieJarString.length}`);
+  console.log(`[Lectio API DEBUG] JSONs equal: ${cookieJarString === storedCookieJarString}`);
+
   if (cookieJarString !== storedCookieJarString) {
-    console.log(`[Lectio API] Syncing full cookie jar to Firebase for student ${studentId}`);
+    console.log(`[Lectio API] Cookie jar changed! Syncing full cookie jar to Firebase for student ${studentId}`);
+    console.log(`[Lectio API DEBUG] Diff - Stored:`, storedCookieJarString.substring(0, 200));
+    console.log(`[Lectio API DEBUG] Diff - Complete:`, cookieJarString.substring(0, 200));
 
     // Build updates object
     const updates: Record<string, any> = { // eslint-disable-line
@@ -251,6 +261,7 @@ export async function fetchLectioForStudent(
     }
 
     await db.collection("lectioCreds").doc(studentId).update(updates);
+    console.log(`[Lectio API] Successfully synced cookie jar to Firebase for student ${studentId}`);
   } else {
     console.log(`[Lectio API] Cookie jar unchanged for student ${studentId}, skipping Firebase sync`);
   }
