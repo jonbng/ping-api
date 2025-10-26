@@ -30,6 +30,7 @@ export const POST = verifySignatureAppRouter(async () => {
     const snapshot = await db
       .collection("lectioCreds")
       .where("autologinkeyExpiresAt", ">", now)
+      .where("active", "==", true) // Only scrape active credentials
       .select("studentId", "schoolId")
       .get();
 

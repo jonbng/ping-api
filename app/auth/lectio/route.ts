@@ -50,52 +50,52 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Build initial cookie jar with all provided cookies
+    const initialCookies: Record<string, string> = {
+      "ASP.NET_SessionId": sessionId,
+      "autologinkeyV2": autologinkey,
+    };
+
+    if (lectiogsc) {
+      initialCookies.lectiogsc = lectiogsc;
+    }
+
     // Fetch the Lectio page with cookies
     let html: string;
-    let updatedSessionId = sessionId;
-    let updatedSessionIdExpiresAt = sessionIdExpiresAt;
-    let updatedAutologinkey = autologinkey;
-    let updatedAutologinkeyExpiresAt = autologinkeyExpiresAt;
-    let updatedLectiogsc = lectiogsc;
-    let updatedLectiogscExpiresAt = lectiogscExpiresAt;
+    let cookieJar: Record<string, { value: string; expiresAt?: string }> = {};
     try {
       const result = await fetchLectioWithCookies(
         schoolId,
         "/indstillinger/studentIndstillinger.aspx",
-        {
-          sessionId,
-          autologinkey,
-          lectiogsc,
-        }
+        initialCookies
       );
       html = result.html;
-      // Use the new cookies if they were updated
-      if (result.newSessionId) {
-        updatedSessionId = result.newSessionId;
-        console.log(
-          `[Lectio Auth] Session ID updated during auth: ${sessionId} -> ${updatedSessionId}`
-        );
-        if (result.newSessionIdExpiresAt) {
-          updatedSessionIdExpiresAt = result.newSessionIdExpiresAt;
-        }
+
+      // Build initial cookie jar with provided cookies and their expiration dates
+      cookieJar = {
+        "ASP.NET_SessionId": {
+          value: sessionId,
+          expiresAt: sessionIdExpiresAt,
+        },
+        "autologinkeyV2": {
+          value: autologinkey,
+          expiresAt: autologinkeyExpiresAt,
+        },
+      };
+
+      if (lectiogsc && lectiogscExpiresAt) {
+        cookieJar.lectiogsc = {
+          value: lectiogsc,
+          expiresAt: lectiogscExpiresAt,
+        };
       }
-      if (result.newAutologinkey) {
-        updatedAutologinkey = result.newAutologinkey;
+
+      // Merge in any updated cookies from the response
+      for (const [name, cookieData] of Object.entries(result.updatedCookies)) {
+        cookieJar[name] = cookieData;
         console.log(
-          `[Lectio Auth] Autologinkey updated during auth: ${autologinkey} -> ${updatedAutologinkey}`
+          `[Lectio Auth] Cookie "${name}" updated during auth: ${initialCookies[name]} -> ${cookieData.value}`
         );
-        if (result.newAutologinkeyExpiresAt) {
-          updatedAutologinkeyExpiresAt = result.newAutologinkeyExpiresAt;
-        }
-      }
-      if (result.newLectiogsc) {
-        updatedLectiogsc = result.newLectiogsc;
-        console.log(
-          `[Lectio Auth] Lectiogsc updated during auth: ${lectiogsc} -> ${updatedLectiogsc}`
-        );
-        if (result.newLectiogscExpiresAt) {
-          updatedLectiogscExpiresAt = result.newLectiogscExpiresAt;
-        }
       }
     } catch (error) {
       return NextResponse.json(
@@ -155,26 +155,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Store credentials in Firestore
-    const credentialsData: Record<string, string> = {
+    // Store credentials in Firestore with the complete cookie jar
+    const credentialsData: Record<string, any> = { // eslint-disable-line
       schoolId,
       studentId: elevId,
-      sessionId: updatedSessionId,
-      autologinkey: updatedAutologinkey,
-      autologinkeyExpiresAt: updatedAutologinkeyExpiresAt,
-      sessionIdExpiresAt: updatedSessionIdExpiresAt,
+      cookies: cookieJar, // Store all cookies with expiration dates
       firstName,
       lastName,
+      active: true, // Set to true when successfully authenticated
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    // Add lectiogsc if provided
-    if (updatedLectiogsc) {
-      credentialsData.lectiogsc = updatedLectiogsc;
-    }
-    if (updatedLectiogscExpiresAt) {
-      credentialsData.lectiogscExpiresAt = updatedLectiogscExpiresAt;
+    // Keep autologinkey at top level for backward compatibility and scheduler queries
+    if (cookieJar.autologinkeyV2) {
+      credentialsData.autologinkey = cookieJar.autologinkeyV2.value;
+      credentialsData.autologinkeyExpiresAt = cookieJar.autologinkeyV2.expiresAt;
     }
 
     await db.collection("lectioCreds").doc(elevId).set(

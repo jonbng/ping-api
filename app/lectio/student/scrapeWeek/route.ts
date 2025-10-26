@@ -3,7 +3,7 @@ import { db } from "@/lib/firebase-admin";
 import { Timestamp } from "firebase-admin/firestore";
 import * as cheerio from "cheerio";
 import { createHash } from "crypto";
-import { fetchLectioForStudent } from "@/lib/lectio";
+import { fetchLectioForStudent, markCredentialsInactive } from "@/lib/lectio";
 
 interface Student {
   studentId: string;
@@ -117,13 +117,31 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
         `[Lectio Student Scrape] HTML length: ${html.length} characters`
       );
     } catch (error) {
+      // Check if this is a robot detection error (user is logged out)
+      const isRobotDetection = error instanceof Error && error.message.includes("Robot detection");
+
+      if (isRobotDetection) {
+        // Mark credentials as inactive when robot detection is triggered
+        try {
+          await markCredentialsInactive(studentId);
+          console.log(
+            `[Lectio Student Scrape] Marked credentials as inactive for student ${studentId} due to robot detection (logged out)`
+          );
+        } catch (markError) {
+          console.error(
+            `[Lectio Student Scrape] Failed to mark credentials as inactive:`,
+            markError
+          );
+        }
+      }
+
       console.error(
         `[Lectio Student Scrape] Failed to fetch schedule:`,
         error
       );
       return new Response(
         `Failed to fetch schedule: ${error instanceof Error ? error.message : "Unknown error"}`,
-        { status: error instanceof Error && error.message.includes("Robot") ? 403 : 500 }
+        { status: isRobotDetection ? 403 : 500 }
       );
     }
 

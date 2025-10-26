@@ -27,44 +27,57 @@ function parseExpiration(cookieString: string): string | undefined {
 }
 
 /**
+ * Parse all cookies from Set-Cookie header
+ * @param setCookieHeader - The Set-Cookie header value (may contain multiple cookies)
+ * @returns Object mapping cookie names to {value, expiresAt}
+ */
+function parseAllCookies(setCookieHeader: string): Record<string, { value: string; expiresAt?: string }> {
+  const cookies: Record<string, { value: string; expiresAt?: string }> = {};
+
+  // Split by comma followed by a cookie name pattern (to handle multiple Set-Cookie values)
+  const cookieStrings = setCookieHeader.split(/,(?=[^,]+=)/);
+
+  for (const cookieStr of cookieStrings) {
+    // Extract cookie name and value
+    const match = cookieStr.match(/^([^=]+)=([^;]*)/);
+    if (match) {
+      const name = match[1].trim();
+      const value = match[2].trim();
+      const expiresAt = parseExpiration(cookieStr);
+
+      cookies[name] = { value, expiresAt };
+    }
+  }
+
+  return cookies;
+}
+
+/**
  * Fetches a Lectio page with provided cookies
  * @param schoolId - The Lectio school ID
  * @param path - The path to fetch (e.g., "/SkemaNy.aspx")
- * @param cookies - Object with cookie values { sessionId?, autologinkey?, lectiogsc? }
+ * @param cookies - Object mapping cookie names to values
  * @returns The HTML response and any updated cookies with their expiration dates
  */
 export async function fetchLectioWithCookies(
   schoolId: string,
   path: string,
-  cookies: {
-    sessionId?: string;
-    autologinkey?: string;
-    lectiogsc?: string;
-  }
+  cookies: Record<string, string>
 ): Promise<{
   html: string;
-  newSessionId?: string;
-  newSessionIdExpiresAt?: string;
-  newAutologinkey?: string;
-  newAutologinkeyExpiresAt?: string;
-  newLectiogsc?: string;
-  newLectiogscExpiresAt?: string;
+  updatedCookies: Record<string, { value: string; expiresAt?: string }>;
 }> {
   const url = `https://www.lectio.dk/lectio/${schoolId}${path}`;
 
-  // Build cookie string
+  // Build cookie string from all provided cookies
   const cookieParts: string[] = [];
-  if (cookies.sessionId) {
-    cookieParts.push(`ASP.NET_SessionId=${cookies.sessionId}`);
-  }
-  if (cookies.autologinkey) {
-    cookieParts.push(`autologinkeyV2=${cookies.autologinkey}`);
-  }
-  if (cookies.lectiogsc) {
-    cookieParts.push(`lectiogsc=${cookies.lectiogsc}`);
+  for (const [name, value] of Object.entries(cookies)) {
+    if (value) {
+      cookieParts.push(`${name}=${value}`);
+    }
   }
 
-  console.log(`[Lectio API] Fetching ${url}`);
+  console.log(`[Lectio API] Fetching ${url} with ${Object.keys(cookies).length} cookies`);
 
   const response = await fetch(url, {
     headers: {
@@ -83,67 +96,37 @@ export async function fetchLectioWithCookies(
 
   const html = await response.text();
 
-  // Check for robot detection
+  // Check for robot detection (only happens when logged out/invalid cookies)
   if (
     html.includes("Af hensyn til sikkerheden") ||
     html.includes("ikke er en robot") ||
     html.includes("captcha")
   ) {
-    throw new Error("Robot detection triggered - cannot access Lectio");
+    throw new Error("Robot detection triggered - user is logged out or cookies are invalid");
   }
 
-  // Check if server sent new cookies
-  let newSessionId: string | undefined;
-  let newSessionIdExpiresAt: string | undefined;
-  let newAutologinkey: string | undefined;
-  let newAutologinkeyExpiresAt: string | undefined;
-  let newLectiogsc: string | undefined;
-  let newLectiogscExpiresAt: string | undefined;
-
+  // Parse all cookies from Set-Cookie header
+  const updatedCookies: Record<string, { value: string; expiresAt?: string }> = {};
   const setCookieHeader = response.headers.get("set-cookie");
+
   if (setCookieHeader) {
-    // Parse sessionId
-    const sessionIdMatch = setCookieHeader.match(/ASP\.NET_SessionId=([^;]+)[^,]*/);
-    if (sessionIdMatch && sessionIdMatch[1] !== cookies.sessionId) {
-      newSessionId = sessionIdMatch[1];
-      newSessionIdExpiresAt = parseExpiration(sessionIdMatch[0]);
-      console.log(`[Lectio API] Session ID updated: ${cookies.sessionId} -> ${newSessionId}`);
-      if (newSessionIdExpiresAt) {
-        console.log(`[Lectio API] Session ID expires at: ${newSessionIdExpiresAt}`);
-      }
-    }
+    const newCookies = parseAllCookies(setCookieHeader);
 
-    // Parse autologinkey
-    const autologinkeyMatch = setCookieHeader.match(/autologinkeyV2=([^;]+)[^,]*/);
-    if (autologinkeyMatch && autologinkeyMatch[1] !== cookies.autologinkey) {
-      newAutologinkey = autologinkeyMatch[1];
-      newAutologinkeyExpiresAt = parseExpiration(autologinkeyMatch[0]);
-      console.log(`[Lectio API] Autologinkey updated: ${cookies.autologinkey} -> ${newAutologinkey}`);
-      if (newAutologinkeyExpiresAt) {
-        console.log(`[Lectio API] Autologinkey expires at: ${newAutologinkeyExpiresAt}`);
-      }
-    }
-
-    // Parse lectiogsc
-    const lectiogscMatch = setCookieHeader.match(/lectiogsc=([^;]+)[^,]*/);
-    if (lectiogscMatch && lectiogscMatch[1] !== cookies.lectiogsc) {
-      newLectiogsc = lectiogscMatch[1];
-      newLectiogscExpiresAt = parseExpiration(lectiogscMatch[0]);
-      console.log(`[Lectio API] Lectiogsc updated: ${cookies.lectiogsc} -> ${newLectiogsc}`);
-      if (newLectiogscExpiresAt) {
-        console.log(`[Lectio API] Lectiogsc expires at: ${newLectiogscExpiresAt}`);
+    for (const [name, cookieData] of Object.entries(newCookies)) {
+      // Only include if the cookie value changed
+      if (cookieData.value !== cookies[name]) {
+        updatedCookies[name] = cookieData;
+        console.log(`[Lectio API] Cookie "${name}" updated: ${cookies[name]} -> ${cookieData.value}`);
+        if (cookieData.expiresAt) {
+          console.log(`[Lectio API] Cookie "${name}" expires at: ${cookieData.expiresAt}`);
+        }
       }
     }
   }
 
   return {
     html,
-    newSessionId,
-    newSessionIdExpiresAt,
-    newAutologinkey,
-    newAutologinkeyExpiresAt,
-    newLectiogsc,
-    newLectiogscExpiresAt,
+    updatedCookies,
   };
 }
 
@@ -171,14 +154,20 @@ export async function fetchLectioForStudent(
     throw new Error(`Invalid credentials for student ${studentId}`);
   }
 
-  const { schoolId, autologinkey, sessionId, lectiogsc } = creds;
+  const { schoolId, cookies: storedCookies } = creds;
 
   if (!schoolId) {
     throw new Error(`No schoolId found for student ${studentId}`);
   }
 
-  if (!autologinkey) {
-    throw new Error(`No autologinkey found for student ${studentId}`);
+  if (!storedCookies) {
+    throw new Error(`No cookies found for student ${studentId}`);
+  }
+
+  // Extract cookie values from stored format {cookieName: {value, expiresAt}}
+  const cookieValues: Record<string, string> = {};
+  for (const [name, cookieData] of Object.entries(storedCookies as Record<string, { value: string; expiresAt?: string }>)) {
+    cookieValues[name] = cookieData.value;
   }
 
   // Build path with query params if provided
@@ -188,43 +177,22 @@ export async function fetchLectioForStudent(
     fullPath = `${path}?${queryString}`;
   }
 
-  const result = await fetchLectioWithCookies(schoolId, fullPath, {
-    sessionId,
-    autologinkey,
-    lectiogsc,
-  });
+  const result = await fetchLectioWithCookies(schoolId, fullPath, cookieValues);
 
   // Update cookies in Firebase if any changed
-  if (result.newSessionId || result.newAutologinkey || result.newLectiogsc) {
-    const updates: Record<string, string> = {
+  if (Object.keys(result.updatedCookies).length > 0) {
+    // Merge updated cookies with existing ones
+    const mergedCookies = { ...storedCookies };
+    for (const [name, cookieData] of Object.entries(result.updatedCookies)) {
+      mergedCookies[name] = cookieData;
+      console.log(`[Lectio API] Updating cookie "${name}" for student ${studentId} in Firebase`);
+    }
+
+    await db.collection("lectioCreds").doc(studentId).update({
+      cookies: mergedCookies,
       updatedAt: new Date().toISOString(),
-    };
-
-    if (result.newSessionId) {
-      updates.sessionId = result.newSessionId;
-      console.log(`[Lectio API] Updating session ID for student ${studentId} in Firebase`);
-      if (result.newSessionIdExpiresAt) {
-        updates.sessionIdExpiresAt = result.newSessionIdExpiresAt;
-      }
-    }
-
-    if (result.newAutologinkey) {
-      updates.autologinkey = result.newAutologinkey;
-      console.log(`[Lectio API] Updating autologinkey for student ${studentId} in Firebase`);
-      if (result.newAutologinkeyExpiresAt) {
-        updates.autologinkeyExpiresAt = result.newAutologinkeyExpiresAt;
-      }
-    }
-
-    if (result.newLectiogsc) {
-      updates.lectiogsc = result.newLectiogsc;
-      console.log(`[Lectio API] Updating lectiogsc for student ${studentId} in Firebase`);
-      if (result.newLectiogscExpiresAt) {
-        updates.lectiogscExpiresAt = result.newLectiogscExpiresAt;
-      }
-    }
-
-    await db.collection("lectioCreds").doc(studentId).update(updates);
+      active: true, // Mark as active when cookies are successfully updated
+    });
   }
 
   return { html: result.html, schoolId };
@@ -241,4 +209,17 @@ export function isValidLectioResponse(html: string): boolean {
     html.includes("ikke er en robot") ||
     html.includes("captcha")
   );
+}
+
+/**
+ * Mark student credentials as inactive in Firebase
+ * This should be called when robot detection is triggered (user is logged out)
+ * @param studentId - The student's Lectio ID
+ */
+export async function markCredentialsInactive(studentId: string): Promise<void> {
+  console.log(`[Lectio API] Marking credentials as inactive for student ${studentId} due to robot detection (logged out)`);
+  await db.collection("lectioCreds").doc(studentId).update({
+    active: false,
+    updatedAt: new Date().toISOString(),
+  });
 }
