@@ -1,6 +1,23 @@
 import { db } from "@/lib/firebase-admin";
 
 /**
+ * Remove undefined values from an object (Firestore doesn't allow undefined)
+ */
+function removeUndefined<T extends Record<string, any>>(obj: T): T { // eslint-disable-line
+  const cleaned = {} as T;
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        cleaned[key as keyof T] = removeUndefined(value) as T[keyof T];
+      } else {
+        cleaned[key as keyof T] = value;
+      }
+    }
+  }
+  return cleaned;
+}
+
+/**
  * Parse expiration date from Set-Cookie header
  * @param cookieString - The Set-Cookie header string for a specific cookie
  * @returns ISO string of expiration date, or undefined if not found
@@ -49,7 +66,13 @@ function parseAllCookies(setCookieHeader: string): Record<string, { value: strin
       const expiresAt = parseExpiration(cookieStr);
 
       console.log(`[Lectio API DEBUG] Extracted cookie: name="${name}", value="${value}", expiresAt="${expiresAt}"`);
-      cookies[name] = { value, expiresAt };
+
+      // Don't include expiresAt if it's undefined (Firestore doesn't allow undefined values)
+      if (expiresAt) {
+        cookies[name] = { value, expiresAt };
+      } else {
+        cookies[name] = { value };
+      }
     } else {
       console.log(`[Lectio API DEBUG] Failed to match cookie pattern for string:`, cookieStr.substring(0, 100));
     }
@@ -277,7 +300,10 @@ export async function fetchLectioForStudent(
       }
     }
 
-    await db.collection("lectioCreds").doc(studentId).update(updates);
+    // Remove any undefined values before writing to Firestore
+    const cleanedUpdates = removeUndefined(updates);
+
+    await db.collection("lectioCreds").doc(studentId).update(cleanedUpdates);
     console.log(`[Lectio API] Successfully synced cookie jar to Firebase for student ${studentId}`);
   } else {
     console.log(`[Lectio API] Cookie jar unchanged for student ${studentId}, skipping Firebase sync`);

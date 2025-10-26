@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
 
     // Fetch the Lectio page with cookies
     let html: string;
-    let cookieJar: Record<string, { value: string; expiresAt?: string }> = {};
+    const cookieJar: Record<string, { value: string; expiresAt?: string }> = {};
     try {
       const result = await fetchLectioWithCookies(
         schoolId,
@@ -72,22 +72,22 @@ export async function POST(request: NextRequest) {
       html = result.html;
 
       // Build initial cookie jar with provided cookies and their expiration dates
-      cookieJar = {
-        "ASP.NET_SessionId": {
-          value: sessionId,
-          expiresAt: sessionIdExpiresAt,
-        },
-        "autologinkeyV2": {
-          value: autologinkey,
-          expiresAt: autologinkeyExpiresAt,
-        },
-      };
+      // Don't include expiresAt if undefined (Firestore doesn't allow undefined values)
+      cookieJar["ASP.NET_SessionId"] = { value: sessionId };
+      if (sessionIdExpiresAt) {
+        cookieJar["ASP.NET_SessionId"].expiresAt = sessionIdExpiresAt;
+      }
 
-      if (lectiogsc && lectiogscExpiresAt) {
-        cookieJar.lectiogsc = {
-          value: lectiogsc,
-          expiresAt: lectiogscExpiresAt,
-        };
+      cookieJar["autologinkeyV2"] = { value: autologinkey };
+      if (autologinkeyExpiresAt) {
+        cookieJar["autologinkeyV2"].expiresAt = autologinkeyExpiresAt;
+      }
+
+      if (lectiogsc) {
+        cookieJar.lectiogsc = { value: lectiogsc };
+        if (lectiogscExpiresAt) {
+          cookieJar.lectiogsc.expiresAt = lectiogscExpiresAt;
+        }
       }
 
       // Merge in any updated cookies from the response
@@ -170,7 +170,9 @@ export async function POST(request: NextRequest) {
     // Keep autologinkey at top level for backward compatibility and scheduler queries
     if (cookieJar.autologinkeyV2) {
       credentialsData.autologinkey = cookieJar.autologinkeyV2.value;
-      credentialsData.autologinkeyExpiresAt = cookieJar.autologinkeyV2.expiresAt;
+      if (cookieJar.autologinkeyV2.expiresAt) {
+        credentialsData.autologinkeyExpiresAt = cookieJar.autologinkeyV2.expiresAt;
+      }
     }
 
     await db.collection("lectioCreds").doc(elevId).set(
