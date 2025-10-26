@@ -82,19 +82,59 @@ export async function fetchLectioWithCookies(
   const response = await fetch(url, {
     headers: {
       Cookie: cookieParts.join("; "),
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "User-Agent": "BetterLectio/0.1 (API Client)",
+      "Referer": "https://www.lectio.dk",
+      "Accept-Encoding": "gzip, deflate, br",
     },
-    redirect: "follow",
+    redirect: "manual", // We'll handle redirects manually to limit to 5
   });
 
-  if (!response.ok) {
+  // Handle redirects manually (max 5 redirects)
+  let finalResponse = response;
+  let redirectCount = 0;
+  const maxRedirects = 5;
+
+  while (
+    (finalResponse.status === 301 ||
+      finalResponse.status === 302 ||
+      finalResponse.status === 303 ||
+      finalResponse.status === 307 ||
+      finalResponse.status === 308) &&
+    redirectCount < maxRedirects
+  ) {
+    const location = finalResponse.headers.get("location");
+    if (!location) break;
+
+    redirectCount++;
+    console.log(`[Lectio API] Following redirect ${redirectCount}/${maxRedirects} to ${location}`);
+
+    // Make the redirect URL absolute if it's relative
+    const redirectUrl = location.startsWith("http")
+      ? location
+      : new URL(location, url).toString();
+
+    finalResponse = await fetch(redirectUrl, {
+      headers: {
+        Cookie: cookieParts.join("; "),
+        "User-Agent": "BetterLectio/0.1 (API Client)",
+        "Referer": "https://www.lectio.dk",
+        "Accept-Encoding": "gzip, deflate, br",
+      },
+      redirect: "manual",
+    });
+  }
+
+  if (redirectCount >= maxRedirects) {
+    console.warn(`[Lectio API] Max redirects (${maxRedirects}) reached`);
+  }
+
+  if (!finalResponse.ok) {
     throw new Error(
-      `Failed to fetch Lectio page: ${response.status} ${response.statusText}`
+      `Failed to fetch Lectio page: ${finalResponse.status} ${finalResponse.statusText}`
     );
   }
 
-  const html = await response.text();
+  const html = await finalResponse.text();
 
   // Check for robot detection (only happens when logged out/invalid cookies)
   if (
@@ -107,7 +147,7 @@ export async function fetchLectioWithCookies(
 
   // Parse all cookies from Set-Cookie header
   const updatedCookies: Record<string, { value: string; expiresAt?: string }> = {};
-  const setCookieHeader = response.headers.get("set-cookie");
+  const setCookieHeader = finalResponse.headers.get("set-cookie");
 
   if (setCookieHeader) {
     const newCookies = parseAllCookies(setCookieHeader);
