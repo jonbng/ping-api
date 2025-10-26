@@ -51,14 +51,17 @@ function parseExpiration(cookieString: string): string | undefined {
 function parseAllCookies(setCookieHeader: string): Record<string, { value: string; expiresAt?: string }> {
   const cookies: Record<string, { value: string; expiresAt?: string }> = {};
 
-  // Split by comma followed by a cookie name pattern (to handle multiple Set-Cookie values)
-  const cookieStrings = setCookieHeader.split(/,(?=[^,]+=)/);
+  // Note: In HTTP, multiple Set-Cookie headers are concatenated with ", " by fetch API
+  // We need to split carefully to avoid splitting on commas within date values
+  // Strategy: Split on comma followed by a space and a cookie name pattern (word chars followed by =)
+  // This avoids splitting on date commas like "Fri, 31-Dec-9999"
+  const cookieStrings = setCookieHeader.split(/,\s+(?=\w+=)/);
   console.log(`[Lectio API DEBUG] Split Set-Cookie header into ${cookieStrings.length} parts`);
 
   for (const cookieStr of cookieStrings) {
-    console.log(`[Lectio API DEBUG] Parsing cookie string:`, cookieStr.substring(0, 100));
+    console.log(`[Lectio API DEBUG] Parsing cookie string:`, cookieStr.substring(0, 150));
 
-    // Extract cookie name and value
+    // Extract cookie name and value (everything before first semicolon)
     const match = cookieStr.match(/^([^=]+)=([^;]*)/);
     if (match) {
       const name = match[1].trim();
