@@ -70,8 +70,7 @@ export const POST = verifySignatureAppRouter(async () => {
         } as any, // eslint-disable-line
         queueName: "lectioUserScrape",
         url: "https://api.joinping.dk/lectio/student/scrapeWeek",
-        retryDelay: "10000",
-        retries: 2,
+        retries: 0
       });
 
       if (batch.length >= BATCH_SIZE_LIMIT) {
