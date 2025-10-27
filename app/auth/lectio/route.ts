@@ -5,10 +5,17 @@ import { Client } from "@upstash/qstash";
 import { fetchLectioWithCookies } from "@/lib/lectio";
 
 const getWeekKey = (date: Date): string => {
-  // response format format: WWYYYY
-  const week = Math.ceil(date.getTime() / (1000 * 60 * 60 * 24 * 7));
-  const year = date.getFullYear();
-  return `${week.toString().padStart(2, "0")}${year.toString()}`;
+  // response format format: WWYYYY (e.g., 452025 for week 45 of 2025)
+  // ISO week date calculation
+  const target = new Date(date.valueOf());
+  const dayNumber = (date.getDay() + 6) % 7; // Monday = 0, Sunday = 6
+  target.setDate(target.getDate() - dayNumber + 3); // Thursday of current week
+  const firstThursday = new Date(target.getFullYear(), 0, 4); // Jan 4th is always in week 1
+  const weekNumber = Math.ceil(
+    ((target.getTime() - firstThursday.getTime()) / 86400000 + 1) / 7
+  );
+  const year = target.getFullYear();
+  return `${weekNumber.toString().padStart(2, "0")}${year.toString()}`;
 };
 
 export async function POST(request: NextRequest) {
