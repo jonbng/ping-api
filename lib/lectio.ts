@@ -158,6 +158,11 @@ export async function fetchLectioWithCookies(
     const redirectHostname = new URL(redirectUrl).hostname;
     const isLectioDk = redirectHostname === "www.lectio.dk" || redirectHostname === "lectio.dk";
 
+    // Check if redirect is to unilogin broker (session expired)
+    if (redirectHostname === "broker.unilogin.dk" || redirectHostname.includes("unilogin.dk")) {
+      throw new Error("Robot detection triggered - user is logged out or cookies are invalid");
+    }
+
     if (isLectioDk) {
       // Extract cookies from this redirect response
       const setCookieHeader = finalResponse.headers.get("set-cookie");
