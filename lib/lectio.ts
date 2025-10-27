@@ -90,12 +90,16 @@ function parseAllCookies(setCookieHeader: string): Record<string, { value: strin
  * @param schoolId - The Lectio school ID
  * @param path - The path to fetch (e.g., "/SkemaNy.aspx")
  * @param cookies - Object mapping cookie names to values
+ * @param studentId - Optional student ID for saving cookies during redirects
+ * @param storedCookies - Optional stored cookie jar for saving during redirects
  * @returns The HTML response and any updated cookies with their expiration dates
  */
 export async function fetchLectioWithCookies(
   schoolId: string,
   path: string,
-  cookies: Record<string, string>
+  cookies: Record<string, string>,
+  studentId?: string,
+  storedCookies?: Record<string, { value: string; expiresAt?: string }>
 ): Promise<{
   html: string;
   updatedCookies: Record<string, { value: string; expiresAt?: string }>;
@@ -127,6 +131,10 @@ export async function fetchLectioWithCookies(
   let redirectCount = 0;
   const maxRedirects = 5;
 
+  // Track current cookie jar for updating during redirects
+  let currentCookieJar = storedCookies ? { ...storedCookies } : {};
+  let currentCookieValues = { ...cookies };
+
   while (
     (finalResponse.status === 301 ||
       finalResponse.status === 302 ||
@@ -145,6 +153,57 @@ export async function fetchLectioWithCookies(
     const redirectUrl = location.startsWith("http")
       ? location
       : new URL(location, url).toString();
+
+    // Check if redirect is to lectio.dk and extract cookies
+    const redirectHostname = new URL(redirectUrl).hostname;
+    const isLectioDk = redirectHostname === "www.lectio.dk" || redirectHostname === "lectio.dk";
+
+    if (isLectioDk) {
+      // Extract cookies from this redirect response
+      const setCookieHeader = finalResponse.headers.get("set-cookie");
+      if (setCookieHeader) {
+        console.log(`[Lectio API] Extracting cookies from redirect ${redirectCount} to ${redirectUrl}`);
+        const redirectCookies = parseAllCookies(setCookieHeader);
+
+        // Merge cookies into current jar
+        for (const [name, cookieData] of Object.entries(redirectCookies)) {
+          currentCookieJar[name] = cookieData;
+          currentCookieValues[name] = cookieData.value;
+          console.log(`[Lectio API] Cookie "${name}" updated from redirect: ${JSON.stringify(cookieData)}`);
+        }
+
+        // Save to Firebase if studentId is provided
+        if (studentId && Object.keys(redirectCookies).length > 0) {
+          console.log(`[Lectio API] Saving cookies to Firebase after redirect ${redirectCount} for student ${studentId}`);
+
+          const updates: Record<string, any> = { // eslint-disable-line
+            cookies: currentCookieJar,
+            updatedAt: new Date().toISOString(),
+            active: true,
+          };
+
+          // Also update top-level autologinkey if it exists
+          if (currentCookieJar.autologinkeyV2) {
+            updates.autologinkey = currentCookieJar.autologinkeyV2.value;
+            if (currentCookieJar.autologinkeyV2.expiresAt) {
+              updates.autologinkeyExpiresAt = currentCookieJar.autologinkeyV2.expiresAt;
+            }
+          }
+
+          const cleanedUpdates = removeUndefined(updates);
+          await db.collection("lectioCreds").doc(studentId).update(cleanedUpdates);
+          console.log(`[Lectio API] Successfully saved cookies from redirect ${redirectCount}`);
+        }
+
+        // Update cookie parts for next request
+        cookieParts.length = 0;
+        for (const [name, value] of Object.entries(currentCookieValues)) {
+          if (value) {
+            cookieParts.push(`${name}=${value}`);
+          }
+        }
+      }
+    }
 
     finalResponse = await fetch(redirectUrl, {
       headers: {
@@ -260,7 +319,13 @@ export async function fetchLectioForStudent(
     fullPath = `${path}?${queryString}`;
   }
 
-  const result = await fetchLectioWithCookies(schoolId, fullPath, cookieValues);
+  const result = await fetchLectioWithCookies(
+    schoolId,
+    fullPath,
+    cookieValues,
+    studentId,
+    storedCookies as Record<string, { value: string; expiresAt?: string }>
+  );
 
   console.log(`[Lectio API DEBUG] Stored cookies from Firebase for student ${studentId}:`, JSON.stringify(storedCookies, null, 2));
   console.log(`[Lectio API DEBUG] Updated cookies from Lectio response:`, JSON.stringify(result.updatedCookies, null, 2));
