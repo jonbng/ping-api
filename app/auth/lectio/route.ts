@@ -3,20 +3,7 @@ import { load } from "cheerio";
 import { auth, db } from "@/lib/firebase-admin";
 import { Client } from "@upstash/qstash";
 import { fetchLectioWithCookies } from "@/lib/lectio";
-
-const getWeekKey = (date: Date): string => {
-  // response format format: WWYYYY (e.g., 452025 for week 45 of 2025)
-  // ISO week date calculation
-  const target = new Date(date.valueOf());
-  const dayNumber = (date.getDay() + 6) % 7; // Monday = 0, Sunday = 6
-  target.setDate(target.getDate() - dayNumber + 3); // Thursday of current week
-  const firstThursday = new Date(target.getFullYear(), 0, 4); // Jan 4th is always in week 1
-  const weekNumber = Math.ceil(
-    ((target.getTime() - firstThursday.getTime()) / 86400000 + 1) / 7
-  );
-  const year = target.getFullYear();
-  return `${weekNumber.toString().padStart(2, "0")}${year.toString()}`;
-};
+import { getWeekKey } from "@/lib/utils";
 
 export async function POST(request: NextRequest) {
   try {
@@ -193,22 +180,33 @@ export async function POST(request: NextRequest) {
     const uid = `lectio:${schoolId}:${elevId}`;
     const customToken = await auth.createCustomToken(uid);
 
-    await db.collection(`lectio/${schoolId}/students/`).doc(elevId).set(
-      {
-        firebaseUid: uid,
-        lectioId: elevId,
-        schoolId: schoolId,
-      },
-      {
-        merge: true,
-      }
-    );
+    // Store student data in the proper subcollection path
+    await db
+      .collection("lectio")
+      .doc(schoolId)
+      .collection("students")
+      .doc(elevId)
+      .set(
+        {
+          firebaseUid: uid,
+          lectioId: elevId,
+          schoolId: schoolId,
+        },
+        {
+          merge: true,
+        }
+      );
 
     // Trigger immediate schedule scrape for this student
     try {
-      const qstashClient = new Client();
+      const qstashClient = new Client({
+        token: process.env.QSTASH_TOKEN!,
+        baseUrl: process.env.QSTASH_URL || "https://qstash.upstash.io",
+      });
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.joinping.dk";
+
       await qstashClient.publishJSON({
-        url: "https://api.joinping.dk/lectio/student/scrapeWeek",
+        url: `${baseUrl}/lectio/student/scrapeWeek`,
         body: {
           studentId: elevId,
         },
@@ -216,7 +214,7 @@ export async function POST(request: NextRequest) {
 
       const nextWeek = new Date(new Date().getTime() + 1000 * 60 * 60 * 24 * 7);
       await qstashClient.publishJSON({
-        url: "https://api.joinping.dk/lectio/student/scrapeWeek",
+        url: `${baseUrl}/lectio/student/scrapeWeek`,
         body: {
           studentId: elevId,
           week: getWeekKey(nextWeek),
@@ -226,8 +224,18 @@ export async function POST(request: NextRequest) {
         `[Lectio Auth] Triggered scrape job for student ${elevId} at school ${schoolId}`
       );
     } catch (qstashError) {
-      // Don't fail auth if scrape scheduling fails
+      // Don't fail auth if scrape scheduling fails - but store failure for retry
       console.error(`[Lectio Auth] Failed to trigger scrape job:`, qstashError);
+
+      // Store scrape failure so it can be retried later
+      try {
+        await db.collection("lectioCreds").doc(elevId).update({
+          lastScrapeError: new Date().toISOString(),
+          lastScrapeErrorMessage: qstashError instanceof Error ? qstashError.message : "Unknown error",
+        });
+      } catch (updateError) {
+        console.error(`[Lectio Auth] Failed to store scrape error:`, updateError);
+      }
     }
 
     return NextResponse.json({

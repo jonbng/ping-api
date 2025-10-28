@@ -12,7 +12,10 @@ interface Student {
 const BATCH_SIZE_LIMIT = 100;
 
 // Single QStash client
-const client = new Client();
+const client = new Client({
+  token: process.env.QSTASH_TOKEN!,
+  baseUrl: process.env.QSTASH_URL || "https://qstash.upstash.io",
+});
 
 /**
  * POST /api/whatever
@@ -24,6 +27,8 @@ export const POST = verifySignatureAppRouter(async () => {
   console.log("[Lectio Scheduler] Starting job scheduling...");
 
   try {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || process.env.QSTASH_URL || "https://api.joinping.dk";
+
     // Pull just the fields we actually need to keep payloads small
     console.log("[Lectio Scheduler] Fetching students from Firestore...");
     const now = new Date().toISOString();
@@ -69,7 +74,7 @@ export const POST = verifySignatureAppRouter(async () => {
           studentId: student.studentId
         } as any, // eslint-disable-line
         queueName: "lectioUserScrape",
-        url: "https://api.joinping.dk/lectio/student/scrapeWeek",
+        url: `${baseUrl}/lectio/student/scrapeWeek`,
         retries: 0
       });
 

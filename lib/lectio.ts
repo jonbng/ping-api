@@ -1,21 +1,5 @@
 import { db } from "@/lib/firebase-admin";
-
-/**
- * Remove undefined values from an object (Firestore doesn't allow undefined)
- */
-function removeUndefined<T extends Record<string, any>>(obj: T): T { // eslint-disable-line
-  const cleaned = {} as T;
-  for (const [key, value] of Object.entries(obj)) {
-    if (value !== undefined) {
-      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-        cleaned[key as keyof T] = removeUndefined(value) as T[keyof T];
-      } else {
-        cleaned[key as keyof T] = value;
-      }
-    }
-  }
-  return cleaned;
-}
+import { removeUndefined } from "@/lib/utils";
 
 /**
  * Parse expiration date from Set-Cookie header
@@ -53,14 +37,12 @@ function parseAllCookies(setCookieHeader: string): Record<string, { value: strin
 
   // Note: In HTTP, multiple Set-Cookie headers are concatenated with ", " by fetch API
   // We need to split carefully to avoid splitting on commas within date values
-  // Strategy: Split on comma followed by a space and a cookie name pattern (word chars followed by =)
+  // Strategy: Split on comma followed by a space and a cookie name pattern (word chars/dots followed by =)
   // This avoids splitting on date commas like "Fri, 31-Dec-9999"
-  const cookieStrings = setCookieHeader.split(/,\s+(?=\w+=)/);
-  console.log(`[Lectio API DEBUG] Split Set-Cookie header into ${cookieStrings.length} parts`);
+  // Updated regex to handle cookie names with dots (e.g., ASP.NET_SessionId)
+  const cookieStrings = setCookieHeader.split(/,\s+(?=[\w.]+=)/);
 
   for (const cookieStr of cookieStrings) {
-    console.log(`[Lectio API DEBUG] Parsing cookie string:`, cookieStr.substring(0, 150));
-
     // Extract cookie name and value (everything before first semicolon)
     const match = cookieStr.match(/^([^=]+)=([^;]*)/);
     if (match) {
@@ -68,20 +50,15 @@ function parseAllCookies(setCookieHeader: string): Record<string, { value: strin
       const value = match[2].trim();
       const expiresAt = parseExpiration(cookieStr);
 
-      console.log(`[Lectio API DEBUG] Extracted cookie: name="${name}", value="${value}", expiresAt="${expiresAt}"`);
-
       // Don't include expiresAt if it's undefined (Firestore doesn't allow undefined values)
       if (expiresAt) {
         cookies[name] = { value, expiresAt };
       } else {
         cookies[name] = { value };
       }
-    } else {
-      console.log(`[Lectio API DEBUG] Failed to match cookie pattern for string:`, cookieStr.substring(0, 100));
     }
   }
 
-  console.log(`[Lectio API DEBUG] Parsed ${Object.keys(cookies).length} cookies total`);
   return cookies;
 }
 
@@ -132,8 +109,8 @@ export async function fetchLectioWithCookies(
   const maxRedirects = 5;
 
   // Track current cookie jar for updating during redirects
-  let currentCookieJar = storedCookies ? { ...storedCookies } : {};
-  let currentCookieValues = { ...cookies };
+  const currentCookieJar = storedCookies ? { ...storedCookies } : {};
+  const currentCookieValues = { ...cookies };
 
   while (
     (finalResponse.status === 301 ||
@@ -246,16 +223,10 @@ export async function fetchLectioWithCookies(
   const updatedCookies: Record<string, { value: string; expiresAt?: string }> = {};
   const setCookieHeader = finalResponse.headers.get("set-cookie");
 
-  console.log(`[Lectio API DEBUG] Set-Cookie header present: ${!!setCookieHeader}`);
   if (setCookieHeader) {
-    console.log(`[Lectio API DEBUG] Raw Set-Cookie header:`, setCookieHeader);
     const newCookies = parseAllCookies(setCookieHeader);
-    console.log(`[Lectio API DEBUG] Parsed cookies from Set-Cookie:`, JSON.stringify(newCookies, null, 2));
-    console.log(`[Lectio API DEBUG] Current cookies sent in request:`, JSON.stringify(cookies, null, 2));
 
     for (const [name, cookieData] of Object.entries(newCookies)) {
-      console.log(`[Lectio API DEBUG] Checking cookie "${name}": new="${cookieData.value}" vs old="${cookies[name]}" (equal: ${cookieData.value === cookies[name]})`);
-
       // Only include if the cookie value changed
       if (cookieData.value !== cookies[name]) {
         updatedCookies[name] = cookieData;
@@ -263,12 +234,8 @@ export async function fetchLectioWithCookies(
         if (cookieData.expiresAt) {
           console.log(`[Lectio API] Cookie "${name}" expires at: ${cookieData.expiresAt}`);
         }
-      } else {
-        console.log(`[Lectio API DEBUG] Cookie "${name}" unchanged, skipping`);
       }
     }
-  } else {
-    console.log(`[Lectio API DEBUG] No Set-Cookie header in response`);
   }
 
   return {
@@ -332,9 +299,6 @@ export async function fetchLectioForStudent(
     storedCookies as Record<string, { value: string; expiresAt?: string }>
   );
 
-  console.log(`[Lectio API DEBUG] Stored cookies from Firebase for student ${studentId}:`, JSON.stringify(storedCookies, null, 2));
-  console.log(`[Lectio API DEBUG] Updated cookies from Lectio response:`, JSON.stringify(result.updatedCookies, null, 2));
-
   // Build the complete cookie jar after the request
   const completeCookieJar = { ...storedCookies } as Record<string, { value: string; expiresAt?: string }>;
 
@@ -344,19 +308,12 @@ export async function fetchLectioForStudent(
     console.log(`[Lectio API] Cookie "${name}" updated for student ${studentId}: ${JSON.stringify(cookieData)}`);
   }
 
-  console.log(`[Lectio API DEBUG] Complete cookie jar after merge:`, JSON.stringify(completeCookieJar, null, 2));
-
   // Always sync the complete cookie jar to Firebase after every request
   const cookieJarString = JSON.stringify(completeCookieJar);
   const storedCookieJarString = JSON.stringify(storedCookies);
 
-  console.log(`[Lectio API DEBUG] Stored JSON length: ${storedCookieJarString.length}, Complete JSON length: ${cookieJarString.length}`);
-  console.log(`[Lectio API DEBUG] JSONs equal: ${cookieJarString === storedCookieJarString}`);
-
   if (cookieJarString !== storedCookieJarString) {
     console.log(`[Lectio API] Cookie jar changed! Syncing full cookie jar to Firebase for student ${studentId}`);
-    console.log(`[Lectio API DEBUG] Diff - Stored:`, storedCookieJarString.substring(0, 200));
-    console.log(`[Lectio API DEBUG] Diff - Complete:`, cookieJarString.substring(0, 200));
 
     // Build updates object
     const updates: Record<string, any> = { // eslint-disable-line

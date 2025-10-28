@@ -4,6 +4,7 @@ import { Timestamp } from "firebase-admin/firestore";
 import * as cheerio from "cheerio";
 import { createHash } from "crypto";
 import { fetchLectioForStudent, markCredentialsInactive } from "@/lib/lectio";
+import { getWeekKey, removeUndefined } from "@/lib/utils";
 
 interface Student {
   studentId: string;
@@ -44,17 +45,25 @@ interface ScheduleDay {
 // Helper to parse Danish date/time to Timestamp
 const parseDateTime = (dateTimeStr: string): Timestamp | null => {
   // Format: "20/10-2025 08:10 til 09:50" or "20/10-2025 Hele dagen"
+  // NOTE: This parses times in the server's local timezone, which may cause issues
+  // if the server is not in Denmark timezone (Europe/Copenhagen).
+  // Lectio times are in Danish local time (CET/CEST).
+  // For production, consider using a timezone library or ensure server runs in Europe/Copenhagen timezone.
   try {
     const match = dateTimeStr.match(/(\d{2})\/(\d{2})-(\d{4})\s+(\d{2}):(\d{2})/);
     if (!match) return null;
 
     const [, day, month, year, hour, minute] = match;
+    // Parse as UTC to avoid server timezone issues, then we'll treat it as Denmark time
+    // This is a simplification - ideally use a timezone library like date-fns-tz
     const date = new Date(
-      parseInt(year),
-      parseInt(month) - 1,
-      parseInt(day),
-      parseInt(hour),
-      parseInt(minute)
+      Date.UTC(
+        parseInt(year),
+        parseInt(month) - 1,
+        parseInt(day),
+        parseInt(hour),
+        parseInt(minute)
+      )
     );
     return Timestamp.fromDate(date);
   } catch {
@@ -62,29 +71,11 @@ const parseDateTime = (dateTimeStr: string): Timestamp | null => {
   }
 };
 
-// Helper to get week key (YYYY-WW)
-const getWeekKey = (dateStr: string): string => {
+// Helper to convert YYYY-MM-DD date string to week key
+const getWeekKeyFromDateString = (dateStr: string): string => {
   // dateStr format: YYYY-MM-DD
   const date = new Date(dateStr);
-  const year = date.getFullYear();
-  const startOfYear = new Date(year, 0, 1);
-  const diff = date.getTime() - startOfYear.getTime();
-  const oneWeek = 1000 * 60 * 60 * 24 * 7;
-  const week = Math.ceil(diff / oneWeek);
-  return `${year}-${week.toString().padStart(2, "0")}`;
-};
-
-// Helper to remove undefined values from object (Firestore doesn't allow undefined)
-// eslint-disable-next-line
-const removeUndefined = <T extends Record<string, any>>(obj: T): any => {
-  // eslint-disable-next-line
-  const result: any = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value !== undefined) {
-      result[key] = value;
-    }
-  }
-  return result;
+  return getWeekKey(date);
 };
 
 export const POST = verifySignatureAppRouter(async (req: Request) => {
@@ -316,7 +307,7 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
         .update(JSON.stringify(events))
         .digest("hex");
 
-      const weekKey = getWeekKey(date);
+      const weekKey = getWeekKeyFromDateString(date);
 
       const scheduleDay: ScheduleDay = {
         date,
