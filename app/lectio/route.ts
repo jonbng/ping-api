@@ -23,15 +23,18 @@ const client = new Client({
  * using a Firestore collectionGroup("students") query.
  */
 export const POST = verifySignatureAppRouter(async () => {
+  const requestId = Math.random().toString(36).substring(7);
   const startTime = Date.now();
-  console.log("[Lectio Scheduler] Starting job scheduling...");
+  console.log(`[Lectio Scheduler ${requestId}] Starting job scheduling...`);
 
   try {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL || process.env.QSTASH_URL || "https://api.joinping.dk";
+    console.log(`[Lectio Scheduler ${requestId}] Using base URL: ${baseUrl}`);
 
     // Pull just the fields we actually need to keep payloads small
-    console.log("[Lectio Scheduler] Fetching students from Firestore...");
+    console.log(`[Lectio Scheduler ${requestId}] Fetching students from Firestore...`);
     const now = new Date().toISOString();
+    console.log(`[Lectio Scheduler ${requestId}] Querying for credentials with autologinkeyExpiresAt > ${now} and active == true`);
     const snapshot = await db
       .collection("lectioCreds")
       .where("autologinkeyExpiresAt", ">", now)
@@ -41,19 +44,21 @@ export const POST = verifySignatureAppRouter(async () => {
 
     if (snapshot.empty) {
       console.error(
-        "[Lectio Scheduler] No students found with valid credentials."
+        `[Lectio Scheduler ${requestId}] No students found with valid credentials.`
       );
       return new Response("No students found to schedule.", { status: 200 });
     }
 
     console.log(
-      `[Lectio Scheduler] Found ${snapshot.docs.length} students with valid credentials to schedule.`
+      `[Lectio Scheduler ${requestId}] Found ${snapshot.docs.length} students with valid credentials to schedule.`
     );
 
     let totalJobs = 0;
     let skippedJobs = 0;
     let batchCount = 0;
     let batch: PublishBatchRequest[] = [];
+
+    console.log(`[Lectio Scheduler ${requestId}] Building QStash jobs for ${snapshot.docs.length} students...`);
 
     // Build QStash jobs and flush every BATCH_SIZE_LIMIT to avoid big in-memory arrays
     for (const doc of snapshot.docs) {
@@ -63,7 +68,7 @@ export const POST = verifySignatureAppRouter(async () => {
       if (!student?.studentId || !student?.schoolId) {
         skippedJobs++;
         console.warn(
-          `[Lectio Scheduler] Skipping malformed document: ${doc.id} (missing studentId or schoolId)`
+          `[Lectio Scheduler ${requestId}] Skipping malformed document: ${doc.id} (missing studentId or schoolId)`
         );
         continue;
       }
@@ -81,12 +86,12 @@ export const POST = verifySignatureAppRouter(async () => {
       if (batch.length >= BATCH_SIZE_LIMIT) {
         batchCount++;
         console.log(
-          `[Lectio Scheduler] Sending batch ${batchCount} with ${batch.length} jobs...`
+          `[Lectio Scheduler ${requestId}] Sending batch ${batchCount} with ${batch.length} jobs to QStash...`
         );
         await client.batchJSON(batch);
         totalJobs += batch.length;
         console.log(
-          `[Lectio Scheduler] Batch ${batchCount} sent successfully. Total jobs: ${totalJobs}`
+          `[Lectio Scheduler ${requestId}] Batch ${batchCount} sent successfully. Total jobs sent so far: ${totalJobs}`
         );
         batch = [];
       }
@@ -96,12 +101,12 @@ export const POST = verifySignatureAppRouter(async () => {
     if (batch.length > 0) {
       batchCount++;
       console.log(
-        `[Lectio Scheduler] Sending final batch ${batchCount} with ${batch.length} jobs...`
+        `[Lectio Scheduler ${requestId}] Sending final batch ${batchCount} with ${batch.length} jobs to QStash...`
       );
       await client.batchJSON(batch);
       totalJobs += batch.length;
       console.log(
-        `[Lectio Scheduler] Final batch sent successfully. Total jobs: ${totalJobs}`
+        `[Lectio Scheduler ${requestId}] Final batch sent successfully. Total jobs: ${totalJobs}`
       );
     }
 
@@ -109,11 +114,11 @@ export const POST = verifySignatureAppRouter(async () => {
     const batches = Math.ceil(totalJobs / BATCH_SIZE_LIMIT) || 0;
 
     console.log(
-      `[Lectio Scheduler] ✓ Successfully scheduled ${totalJobs} jobs across ${batches} batches in ${duration}ms`
+      `[Lectio Scheduler ${requestId}] ✓ Successfully scheduled ${totalJobs} jobs across ${batches} batches in ${duration}ms`
     );
     if (skippedJobs > 0) {
       console.warn(
-        `[Lectio Scheduler] Skipped ${skippedJobs} malformed documents`
+        `[Lectio Scheduler ${requestId}] Skipped ${skippedJobs} malformed documents`
       );
     }
 
@@ -122,7 +127,8 @@ export const POST = verifySignatureAppRouter(async () => {
     );
   } catch (error) {
     const duration = Date.now() - startTime;
-    console.error(`[Lectio Scheduler] ✗ Failed after ${duration}ms:`, error);
+    console.error(`[Lectio Scheduler ${requestId}] ✗ Failed after ${duration}ms:`, error);
+    console.error(`[Lectio Scheduler ${requestId}] Error stack:`, error instanceof Error ? error.stack : "No stack trace");
     return new Response(
       `Failed to schedule scraping jobs: ${
         error instanceof Error ? error.message : "Unknown error"

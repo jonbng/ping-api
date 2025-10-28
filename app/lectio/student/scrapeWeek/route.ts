@@ -79,21 +79,24 @@ const getWeekKeyFromDateString = (dateStr: string): string => {
 };
 
 export const POST = verifySignatureAppRouter(async (req: Request) => {
+  const requestId = Math.random().toString(36).substring(7);
   const startTime = Date.now();
+  console.log(`[Lectio Student Scrape ${requestId}] Starting scrape request`);
 
   try {
     const body: Student = await req.json();
     const { studentId } = body;
+    console.log(`[Lectio Student Scrape ${requestId}] Parsed request body for student ${studentId || 'undefined'}`);
 
     if (!studentId) {
       console.error(
-        `[Lectio Student Scrape] Missing required field: studentId=${studentId}`
+        `[Lectio Student Scrape ${requestId}] Missing required field: studentId=${studentId}`
       );
       return new Response("Missing studentId", { status: 400 });
     }
 
     console.log(
-      `[Lectio Student Scrape] Starting scrape for student ${studentId}${body.week ? ` (week ${body.week})` : ""}`
+      `[Lectio Student Scrape ${requestId}] Starting scrape for student ${studentId}${body.week ? ` (week ${body.week})` : " (current week)"}`
     );
 
     // Fetch schedule from Lectio using helper
@@ -101,41 +104,56 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
     let actualSchoolId: string;
     try {
       const queryParams = body.week ? { week: body.week } : undefined;
+      console.log(`[Lectio Student Scrape ${requestId}] Fetching schedule from Lectio for student ${studentId}...`);
+      if (queryParams) {
+        console.log(`[Lectio Student Scrape ${requestId}] Query params:`, queryParams);
+      }
       const result = await fetchLectioForStudent(studentId, "/SkemaNy.aspx", queryParams);
       html = result.html;
       actualSchoolId = result.schoolId;
       console.log(
-        `[Lectio Student Scrape] HTML length: ${html.length} characters`
+        `[Lectio Student Scrape ${requestId}] Successfully fetched schedule HTML (${html.length} characters) for school ${actualSchoolId}`
       );
     } catch (error) {
       // Check if this is a robot detection error (user is logged out)
       const isRobotDetection = error instanceof Error && error.message.includes("Robot detection");
 
+      console.error(
+        `[Lectio Student Scrape ${requestId}] Failed to fetch schedule:`,
+        error
+      );
+      console.error(`[Lectio Student Scrape ${requestId}] Error details:`, {
+        message: error instanceof Error ? error.message : "Unknown error",
+        studentId,
+        week: body.week,
+        isRobotDetection,
+      });
+
       if (isRobotDetection) {
         // Mark credentials as inactive when robot detection is triggered
+        console.log(
+          `[Lectio Student Scrape ${requestId}] Robot detection triggered - marking credentials as inactive for student ${studentId}`
+        );
         try {
           await markCredentialsInactive(studentId);
           console.log(
-            `[Lectio Student Scrape] Marked credentials as inactive for student ${studentId} due to robot detection (logged out)`
+            `[Lectio Student Scrape ${requestId}] Successfully marked credentials as inactive for student ${studentId}`
           );
         } catch (markError) {
           console.error(
-            `[Lectio Student Scrape] Failed to mark credentials as inactive:`,
+            `[Lectio Student Scrape ${requestId}] Failed to mark credentials as inactive:`,
             markError
           );
         }
       }
 
-      console.error(
-        `[Lectio Student Scrape] Failed to fetch schedule:`,
-        error
-      );
       return new Response(
         `Failed to fetch schedule: ${error instanceof Error ? error.message : "Unknown error"}`,
         { status: isRobotDetection ? 403 : 500 }
       );
     }
 
+    console.log(`[Lectio Student Scrape ${requestId}] Parsing HTML to extract schedule events...`);
     const $ = cheerio.load(html);
 
     // Parse schedule events grouped by date
@@ -144,8 +162,13 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
     // Find all td elements with data-date attribute (these are the day columns)
     const dateCells = $("td[data-date]");
     console.log(
-      `[Lectio Student Scrape] Found ${dateCells.length} date cells`
+      `[Lectio Student Scrape ${requestId}] Found ${dateCells.length} date cells in schedule`
     );
+
+    if (dateCells.length === 0) {
+      console.error(`[Lectio Student Scrape ${requestId}] No date cells found in HTML - schedule may be malformed`);
+      console.error(`[Lectio Student Scrape ${requestId}] Full HTML response:`, html);
+    }
 
     $("td[data-date]").each((_, dateCell) => {
       const date = $(dateCell).attr("data-date");
@@ -296,6 +319,7 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
     });
 
     // Write to Firebase
+    console.log(`[Lectio Student Scrape ${requestId}] Preparing to write ${Object.keys(eventsByDate).length} days to Firestore...`);
     const batch = db.batch();
     let totalEvents = 0;
 
@@ -330,13 +354,16 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
       batch.set(docRef, scheduleDay);
 
       totalEvents += events.length;
+      console.log(`[Lectio Student Scrape ${requestId}] Added ${events.length} events for ${date} (week ${weekKey}) to batch`);
     }
 
+    console.log(`[Lectio Student Scrape ${requestId}] Committing batch to Firestore...`);
     await batch.commit();
+    console.log(`[Lectio Student Scrape ${requestId}] Successfully committed ${totalEvents} events to Firestore`);
 
     const duration = Date.now() - startTime;
     console.log(
-      `[Lectio Student Scrape] ✓ Successfully scraped ${totalEvents} events across ${Object.keys(eventsByDate).length} days for student ${studentId} in ${duration}ms`
+      `[Lectio Student Scrape ${requestId}] ✓ Successfully scraped ${totalEvents} events across ${Object.keys(eventsByDate).length} days for student ${studentId} in ${duration}ms`
     );
 
     return new Response(
@@ -346,11 +373,11 @@ export const POST = verifySignatureAppRouter(async (req: Request) => {
   } catch (error) {
     const duration = Date.now() - startTime;
     console.error(
-      `[Lectio Student Scrape] ✗ Failed after ${duration}ms:`,
+      `[Lectio Student Scrape ${requestId}] ✗ Failed after ${duration}ms:`,
       error
     );
     console.error(
-      `[Lectio Student Scrape] Error stack:`,
+      `[Lectio Student Scrape ${requestId}] Error stack:`,
       error instanceof Error ? error.stack : "No stack trace"
     );
     return new Response(
